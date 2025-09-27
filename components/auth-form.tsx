@@ -33,32 +33,33 @@ export function AuthForm() {
           return
         }
       } else {
+        // Get the current domain for redirect URL
+        const redirectUrl = typeof window !== 'undefined' 
+          ? `${window.location.origin}/auth/callback`
+          : 'https://cbt-3amj4kpdv-syed-mohammad-hamza-asifs-projects.vercel.app/auth/callback'
+
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { name: fullName, role: "USER", phone },
+            data: { 
+              full_name: fullName, 
+              role: "STUDENT", 
+              phone 
+            },
+            emailRedirectTo: redirectUrl
           },
         })
         if (error) throw error
-        // Create or upsert profile row
-        const userId = data.user?.id
-        if (userId) {
-          const { error: profileError } = await supabase.from("profiles").upsert(
-            {
-              user_id: userId,
-              email,
-              name: fullName,
-              role: "USER",
-              phone,
-            },
-            { onConflict: "user_id" }
-          )
-          if (profileError) throw profileError
-        }
+        
+        // Don't manually create profile - the trigger handles this
         // If email confirmation is disabled and session exists, redirect now
         if (data.session?.user) {
           window.location.href = "/dashboard"
+          return
+        } else if (data.user && !data.session) {
+          // Email confirmation required
+          alert("Please check your email for a confirmation link!")
           return
         }
       }
