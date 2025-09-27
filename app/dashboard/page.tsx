@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { ClassroomSystem } from "@/components/classroom-system"
+import DatabaseDebug from "@/components/database-debug"
 import { supabase } from "@/lib/supabaseClient"
 
 export default function DashboardPage() {
@@ -16,7 +17,10 @@ export default function DashboardPage() {
   }, [])
   return (
     <div className="container mx-auto px-4 py-8">
-      <ClassroomSystem />
+      <DatabaseDebug />
+      <div className="mt-8">
+        <ClassroomSystem />
+      </div>
     </div>
   )
 }
