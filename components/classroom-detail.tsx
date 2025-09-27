@@ -209,13 +209,14 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
             status,
             joined_at,
             role,
-            profiles(user_id,name,email)
+            profiles!inner(user_id,name,email)
           `)
           .eq("classroom_id", classroomId)
           .eq("status", "active")
           .eq("role", "STUDENT")
         
         console.log("Students query result:", { members, error })
+        console.log("First student data:", members?.[0])
         setRoster((members as any) || [])
       } else {
         // Students see their own submissions (only after assignments are loaded)
@@ -837,7 +838,10 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                         <tr key={student.user_id} className="border-b hover:bg-muted/30">
                           <td className="p-4">
                             <div>
-                              <p className="font-medium">{student.profiles?.name || "N/A"}</p>
+                              <p className="font-medium">
+                                {student.profiles?.name || 
+                                 (student.profiles?.email ? student.profiles.email.split('@')[0] : "Unknown User")}
+                              </p>
                               <p className="text-sm text-muted-foreground">{student.profiles?.email}</p>
                             </div>
                           </td>
@@ -1101,7 +1105,10 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                         <div key={student.user_id} className="flex items-center justify-between p-4 border rounded-lg">
                           <div className="flex items-center gap-4">
                             <div>
-                              <p className="font-medium">{student.profiles?.name || "N/A"}</p>
+                              <p className="font-medium">
+                                {student.profiles?.name || 
+                                 (student.profiles?.email ? student.profiles.email.split('@')[0] : "Unknown User")}
+                              </p>
                               <p className="text-sm text-muted-foreground">{student.profiles?.email}</p>
                             </div>
                           </div>
