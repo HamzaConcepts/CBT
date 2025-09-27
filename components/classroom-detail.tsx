@@ -201,6 +201,14 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
       setMaterials(mats || [])
 
       if (role === "TEACHER") {
+        // Debug: First check what's actually in the profiles table
+        const { data: allProfiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("user_id, name, email")
+          .limit(5)
+        
+        console.log("Sample profiles from database:", { allProfiles, profilesError })
+
         // Teachers see all students (excluding teachers)
         const { data: members, error } = await supabase
           .from("classroom_memberships")
@@ -217,6 +225,18 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
         
         console.log("Students query result:", { members, error })
         console.log("First student data:", members?.[0])
+        
+        // Also try a direct query to see if the issue is with the join
+        if (members && members.length > 0) {
+          const studentIds = members.map(m => m.user_id)
+          const { data: directProfiles, error: directError } = await supabase
+            .from("profiles")
+            .select("user_id, name, email")
+            .in("user_id", studentIds)
+          
+          console.log("Direct profiles query:", { directProfiles, directError })
+        }
+        
         setRoster((members as any) || [])
       } else {
         // Students see their own submissions (only after assignments are loaded)
