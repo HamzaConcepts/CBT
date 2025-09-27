@@ -221,11 +221,58 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
           
           console.log("Profiles:", { profiles, profilesError })
           
+          // For users without profiles, get their email from auth.users
+          const missingProfileUserIds = userIds.filter(id => 
+            !profiles?.find(p => p.user_id === id)
+          )
+          
+          console.log("Users missing profiles:", missingProfileUserIds)
+          
+          // Try to get missing user info from auth metadata or create default profiles
+          if (missingProfileUserIds.length > 0) {
+            // Create missing profiles with fallback data
+            const missingProfiles = await Promise.all(
+              missingProfileUserIds.map(async (userId) => {
+                // Try to create a profile for this user
+                const { data: newProfile, error } = await supabase
+                  .from("profiles")
+                  .insert({
+                    user_id: userId,
+                    email: `user-${userId.slice(0, 8)}@unknown.com`, // Fallback email
+                    name: `User ${userId.slice(0, 8)}`, // Fallback name
+                    role: 'STUDENT'
+                  })
+                  .select()
+                  .single()
+                
+                if (error) {
+                  console.error('Error creating profile:', error)
+                  return {
+                    user_id: userId,
+                    name: `Student ${userId.slice(0, 8)}`,
+                    email: `unknown-${userId.slice(0, 8)}@student.com`
+                  }
+                }
+                return newProfile
+              })
+            )
+            
+            // Add the missing profiles to the profiles array
+            profiles?.push(...missingProfiles)
+          }
+          
           // Combine the data
-          const rosterData = memberships.map(membership => ({
-            ...membership,
-            profiles: profiles?.find(p => p.user_id === membership.user_id) || null
-          }))
+          const rosterData = memberships.map(membership => {
+            const profile = profiles?.find(p => p.user_id === membership.user_id)
+            return {
+              ...membership,
+              profiles: profile || {
+                user_id: membership.user_id,
+                name: `Student ${membership.user_id.slice(0, 8)}`,
+                email: `unknown-${membership.user_id.slice(0, 8)}@student.com`
+              }
+            }
+          })
           
           console.log("Combined roster data:", rosterData)
           setRoster(rosterData as any)
