@@ -27,6 +27,7 @@ import {
   UserPlus,
   GraduationCap,
   Sparkles,
+  LogOut,
 } from "lucide-react"
 import { supabase } from "@/lib/supabaseClient"
 
@@ -203,6 +204,31 @@ export function ClassroomSystem() {
     navigator.clipboard.writeText(code)
     setCopiedCode(code)
     setTimeout(() => setCopiedCode(null), 2000)
+  }
+
+  const handleLeaveClass = async (classroomId: string, className: string) => {
+    if (!currentUserId) return
+    
+    const confirmed = window.confirm(`Are you sure you want to leave "${className}"? You'll need a class code to rejoin.`)
+    if (!confirmed) return
+
+    try {
+      const { error } = await supabase
+        .from("classroom_memberships")
+        .delete()
+        .eq("classroom_id", classroomId)
+        .eq("user_id", currentUserId)
+
+      if (error) {
+        alert("Failed to leave classroom. Please try again.")
+        return
+      }
+
+      // Remove the classroom from the local state
+      setJoinedClasses(joinedClasses.filter(c => c.id !== classroomId))
+    } catch (error) {
+      alert("An unexpected error occurred. Please try again.")
+    }
   }
 
   const allClasses = [...createdClasses, ...joinedClasses]
@@ -553,6 +579,15 @@ export function ClassroomSystem() {
                       >
                         <BookOpen className="w-4 h-4 mr-2" />
                         Enter
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="group-hover:border-primary/50 transition-all bg-transparent hover:shadow-md hover:-translate-y-0.5"
+                        onClick={() => handleLeaveClass(classroom.id, classroom.name)}
+                        title="Leave class"
+                      >
+                        <LogOut className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="outline"
