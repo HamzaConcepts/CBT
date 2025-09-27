@@ -201,43 +201,37 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
       setMaterials(mats || [])
 
       if (role === "TEACHER") {
-        // Debug: First check what's actually in the profiles table
-        const { data: allProfiles, error: profilesError } = await supabase
-          .from("profiles")
-          .select("user_id, name, email")
-          .limit(5)
-        
-        console.log("Sample profiles from database:", { allProfiles, profilesError })
-
-        // Teachers see all students (excluding teachers)
-        const { data: members, error } = await supabase
+        // First get the classroom memberships
+        const { data: memberships, error: membershipsError } = await supabase
           .from("classroom_memberships")
-          .select(`
-            user_id,
-            status,
-            joined_at,
-            role,
-            profiles!inner(user_id,name,email)
-          `)
+          .select("user_id, status, joined_at, role")
           .eq("classroom_id", classroomId)
           .eq("status", "active")
           .eq("role", "STUDENT")
         
-        console.log("Students query result:", { members, error })
-        console.log("First student data:", members?.[0])
+        console.log("Memberships:", { memberships, membershipsError })
         
-        // Also try a direct query to see if the issue is with the join
-        if (members && members.length > 0) {
-          const studentIds = members.map(m => m.user_id)
-          const { data: directProfiles, error: directError } = await supabase
+        if (memberships && memberships.length > 0) {
+          // Then get the profiles for those users
+          const userIds = memberships.map(m => m.user_id)
+          const { data: profiles, error: profilesError } = await supabase
             .from("profiles")
             .select("user_id, name, email")
-            .in("user_id", studentIds)
+            .in("user_id", userIds)
           
-          console.log("Direct profiles query:", { directProfiles, directError })
+          console.log("Profiles:", { profiles, profilesError })
+          
+          // Combine the data
+          const rosterData = memberships.map(membership => ({
+            ...membership,
+            profiles: profiles?.find(p => p.user_id === membership.user_id) || null
+          }))
+          
+          console.log("Combined roster data:", rosterData)
+          setRoster(rosterData as any)
+        } else {
+          setRoster([])
         }
-        
-        setRoster((members as any) || [])
       } else {
         // Students see their own submissions (only after assignments are loaded)
         if (assignments.length > 0) {
