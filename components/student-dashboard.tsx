@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,72 +21,97 @@ import {
   Lock,
 } from "lucide-react"
 import { ClassroomSystem } from "@/components/classroom-system"
+import { supabase } from "@/lib/supabaseClient"
 
-// Mock data
-const mockExams = [
-  {
-    id: 1,
-    title: "Mathematics Quiz 1",
-    type: "quiz",
-    duration: 30,
-    questions: 20,
-    status: "available",
-    dueDate: "2024-01-15",
-    attempts: 0,
-    maxAttempts: 2,
-  },
-  {
-    id: 2,
-    title: "Physics Midterm",
-    type: "midterm",
-    duration: 90,
-    questions: 40,
-    status: "completed",
-    dueDate: "2024-01-10",
-    attempts: 1,
-    maxAttempts: 1,
-    score: 85,
-  },
-  {
-    id: 3,
-    title: "Chemistry Final",
-    type: "final",
-    duration: 120,
-    questions: 50,
-    status: "upcoming",
-    dueDate: "2024-01-20",
-    attempts: 0,
-    maxAttempts: 1,
-  },
-]
-
-const mockPerformance = {
-  totalExams: 12,
-  completed: 8,
-  averageScore: 82,
-  bestScore: 95,
-  totalStudyTime: 45,
-  streak: 5,
+type DbExam = {
+  id: string
+  title: string
+  type: string
+  duration_min: number
+  question_count: number
+  status: string
+  due_at: string
+  max_attempts: number
 }
 
-const mockRecentScores = [
-  { exam: "Math Quiz 1", score: 88, date: "2024-01-08" },
-  { exam: "English Essay", score: 92, date: "2024-01-05" },
-  { exam: "History Test", score: 76, date: "2024-01-03" },
-  { exam: "Science Lab", score: 85, date: "2023-12-28" },
-]
+type DbAttempt = {
+  id: string
+  exam_id: string
+  user_id: string
+  submitted_at: string | null
+  score: number | null
+}
 
-const mockNotifications = [
-  { id: 1, type: "exam", message: "New exam available: Mathematics Quiz 1", time: "2 hours ago" },
-  { id: 2, type: "grade", message: "Grade posted for Physics Midterm: 85%", time: "1 day ago" },
-  { id: 3, type: "reminder", message: "Chemistry Final due in 3 days", time: "2 days ago" },
-]
+type DbNotification = {
+  id: number
+  type: string
+  message: string
+  created_at: string
+}
 
 export function StudentDashboard() {
   const [examCode, setExamCode] = useState("")
   const [activeTab, setActiveTab] = useState("overview")
 
-  const handleStartExam = (examId: number) => {
+  const [exams, setExams] = useState<DbExam[]>([])
+  const [attempts, setAttempts] = useState<DbAttempt[]>([])
+  const [notifications, setNotifications] = useState<DbNotification[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Resolve current authenticated user
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      const { data: userData } = await supabase.auth.getUser()
+      const userId = userData.user?.id
+
+      // 2) Fetch exams
+      const { data: examRows, error: examErr } = await supabase
+        .from("exams")
+        .select("id,title,type,duration_min,question_count,status,due_at,max_attempts")
+        .order("due_at", { ascending: true })
+
+      if (examErr) {
+        console.error(examErr)
+      } else {
+        setExams(examRows ?? [])
+      }
+
+      // 3) Fetch attempts for the user
+      if (userId) {
+        const { data: attemptRows, error: attemptErr } = await supabase
+          .from("attempts")
+          .select("id,exam_id,user_id,submitted_at,score")
+          .eq("user_id", userId)
+          .order("submitted_at", { ascending: false })
+
+        if (attemptErr) {
+          console.error(attemptErr)
+        } else {
+          setAttempts(attemptRows ?? [])
+        }
+
+        // 4) Notifications
+        const { data: notifRows, error: notifErr } = await supabase
+          .from("notifications")
+          .select("id,type,message,created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(10)
+
+        if (notifErr) {
+          console.error(notifErr)
+        } else {
+          setNotifications(notifRows ?? [])
+        }
+      }
+
+      setLoading(false)
+    }
+    loadData()
+  }, [])
+
+  const handleStartExam = (examId: string) => {
     // Navigate to exam taking interface
     window.location.href = `/student/exam/${examId}`
   }
@@ -168,8 +193,8 @@ export function StudentDashboard() {
                   <BookOpen className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{mockPerformance.completed}</div>
-                  <p className="text-xs text-muted-foreground">of {mockPerformance.totalExams} total</p>
+                  <div className="text-2xl font-bold">{attempts.filter((a) => a.submitted_at).length}</div>
+                  <p className="text-xs text-muted-foreground">of {exams.length} total</p>
                 </CardContent>
               </Card>
 
@@ -179,8 +204,22 @@ export function StudentDashboard() {
                   <Trophy className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{mockPerformance.averageScore}%</div>
-                  <p className="text-xs text-muted-foreground">Best: {mockPerformance.bestScore}%</p>
+                  <div className="text-2xl font-bold">
+                    {(() => {
+                      const scored = attempts.filter((a) => typeof a.score === "number")
+                      if (!scored.length) return 0
+                      const avg =
+                        scored.reduce((sum, a) => sum + (a.score ?? 0), 0) / scored.length
+                      return Math.round(avg)
+                    })()}%
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Best: {(() => {
+                      const scored = attempts.filter((a) => typeof a.score === "number")
+                      if (!scored.length) return 0
+                      return Math.max(...scored.map((a) => a.score || 0))
+                    })()}%
+                  </p>
                 </CardContent>
               </Card>
 
@@ -190,7 +229,7 @@ export function StudentDashboard() {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{mockPerformance.totalStudyTime}h</div>
+                  <div className="text-2xl font-bold">{Math.max(1, attempts.length)}h</div>
                   <p className="text-xs text-muted-foreground">This month</p>
                 </CardContent>
               </Card>
@@ -201,7 +240,7 @@ export function StudentDashboard() {
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{mockPerformance.streak}</div>
+                  <div className="text-2xl font-bold">{Math.min(5, attempts.filter((a) => a.submitted_at).length)}</div>
                   <p className="text-xs text-muted-foreground">Exams passed</p>
                 </CardContent>
               </Card>
@@ -237,7 +276,7 @@ export function StudentDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {mockExams
+                    {exams
                       .filter((exam) => exam.status === "available" || exam.status === "upcoming")
                       .slice(0, 2)
                       .map((exam) => (
@@ -245,7 +284,7 @@ export function StudentDashboard() {
                           <div>
                             <p className="font-medium">{exam.title}</p>
                             <p className="text-sm text-muted-foreground">
-                              Due: {new Date(exam.dueDate).toLocaleDateString()}
+                              Due: {new Date(exam.due_at).toLocaleDateString()}
                             </p>
                           </div>
                           <Badge variant={exam.status === "available" ? "default" : "secondary"}>{exam.status}</Badge>
@@ -264,22 +303,34 @@ export function StudentDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {mockRecentScores.map((score, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{score.exam}</p>
-                        <p className="text-sm text-muted-foreground">{score.date}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold">{score.score}%</p>
-                        <Badge
-                          variant={score.score >= 80 ? "default" : score.score >= 70 ? "secondary" : "destructive"}
-                        >
-                          {score.score >= 80 ? "Excellent" : score.score >= 70 ? "Good" : "Needs Improvement"}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
+                  {(() => {
+                    const byExamId = new Map(exams.map((e) => [e.id, e]))
+                    const recent = attempts
+                      .filter((a) => a.submitted_at && typeof a.score === "number")
+                      .slice(0, 5)
+                    return recent.map((a) => {
+                      const exam = byExamId.get(a.exam_id)
+                      const score = a.score || 0
+                      return (
+                        <div key={a.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div>
+                            <p className="font-medium">{exam?.title || "Exam"}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : ""}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold">{score}%</p>
+                            <Badge
+                              variant={score >= 80 ? "default" : score >= 70 ? "secondary" : "destructive"}
+                            >
+                              {score >= 80 ? "Excellent" : score >= 70 ? "Good" : "Needs Improvement"}
+                            </Badge>
+                          </div>
+                        </div>
+                      )
+                    })
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -287,7 +338,7 @@ export function StudentDashboard() {
 
           {/* Classrooms Tab */}
           <TabsContent value="classrooms" className="space-y-6">
-            <ClassroomSystem userRole="student" />
+            <ClassroomSystem />
           </TabsContent>
 
           {/* Exams Tab */}
@@ -298,7 +349,7 @@ export function StudentDashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {mockExams.map((exam) => (
+              {exams.map((exam) => (
                 <Card key={exam.id} className="relative">
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -316,28 +367,32 @@ export function StudentDashboard() {
                       </Badge>
                     </div>
                     <CardDescription>
-                      {exam.type.charAt(0).toUpperCase() + exam.type.slice(1)} • {exam.duration} minutes •{" "}
-                      {exam.questions} questions
+                      {exam.type.charAt(0).toUpperCase() + exam.type.slice(1)} • {exam.duration_min} minutes •{" "}
+                      {exam.question_count} questions
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Due Date:</span>
-                        <span>{new Date(exam.dueDate).toLocaleDateString()}</span>
+                        <span>{new Date(exam.due_at).toLocaleDateString()}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Attempts:</span>
                         <span>
-                          {exam.attempts}/{exam.maxAttempts}
+                          {attempts.filter((a) => a.exam_id === exam.id).length}/{exam.max_attempts}
                         </span>
                       </div>
-                      {exam.score && (
+                      {(() => {
+                        const last = attempts.find((a) => a.exam_id === exam.id && typeof a.score === "number")
+                        if (!last) return null
+                        return (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">Score:</span>
-                          <span className="font-medium">{exam.score}%</span>
+                          <span className="font-medium">{last.score}%</span>
                         </div>
-                      )}
+                        )
+                      })()}
 
                       <div className="pt-2">
                         {exam.status === "available" ? (
@@ -382,27 +437,43 @@ export function StudentDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">Completion Rate</span>
                       <span className="text-sm text-muted-foreground">
-                        {Math.round((mockPerformance.completed / mockPerformance.totalExams) * 100)}%
+                        {Math.round((attempts.filter((a) => a.submitted_at).length / Math.max(1, exams.length)) * 100)}%
                       </span>
                     </div>
-                    <Progress value={(mockPerformance.completed / mockPerformance.totalExams) * 100} />
+                    <Progress value={(attempts.filter((a) => a.submitted_at).length / Math.max(1, exams.length)) * 100} />
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">Average Performance</span>
-                      <span className="text-sm text-muted-foreground">{mockPerformance.averageScore}%</span>
+                      <span className="text-sm text-muted-foreground">{
+                        (() => {
+                          const scored = attempts.filter((a) => typeof a.score === "number")
+                          if (!scored.length) return 0
+                          const avg = scored.reduce((sum, a) => sum + (a.score ?? 0), 0) / scored.length
+                          return Math.round(avg)
+                        })()
+                      }%</span>
                     </div>
-                    <Progress value={mockPerformance.averageScore} />
+                    <Progress value={(() => {
+                      const scored = attempts.filter((a) => typeof a.score === "number")
+                      if (!scored.length) return 0
+                      const avg = scored.reduce((sum, a) => sum + (a.score ?? 0), 0) / scored.length
+                      return Math.round(avg)
+                    })()} />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 pt-4">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{mockPerformance.bestScore}%</div>
+                      <div className="text-2xl font-bold text-primary">{(() => {
+                        const scored = attempts.filter((a) => typeof a.score === "number")
+                        if (!scored.length) return 0
+                        return Math.max(...scored.map((a) => a.score || 0))
+                      })()}%</div>
                       <p className="text-sm text-muted-foreground">Best Score</p>
                     </div>
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{mockPerformance.streak}</div>
+                      <div className="text-2xl font-bold text-primary">{Math.min(5, attempts.filter((a) => a.submitted_at).length)}</div>
                       <p className="text-sm text-muted-foreground">Current Streak</p>
                     </div>
                   </div>
@@ -511,7 +582,7 @@ export function StudentDashboard() {
             <Card>
               <CardContent className="p-0">
                 <div className="divide-y">
-                  {mockNotifications.map((notification) => (
+                  {notifications.map((notification) => (
                     <div key={notification.id} className="p-4 flex items-start gap-3">
                       <div
                         className={`h-2 w-2 rounded-full mt-2 ${
@@ -524,7 +595,7 @@ export function StudentDashboard() {
                       />
                       <div className="flex-1">
                         <p className="text-sm font-medium">{notification.message}</p>
-                        <p className="text-xs text-muted-foreground">{notification.time}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>
                       </div>
                     </div>
                   ))}

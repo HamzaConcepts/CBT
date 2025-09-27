@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,57 +22,95 @@ import {
   XCircle,
 } from "lucide-react"
 import { ClassroomSystem } from "@/components/classroom-system"
+import { supabase } from "@/lib/supabaseClient"
 
-// Mock data
-const mockStudents = [
-  { id: 1, name: "Alice Johnson", email: "alice@example.com", status: "active", examsCompleted: 5, avgScore: 85 },
-  { id: 2, name: "Bob Smith", email: "bob@example.com", status: "active", examsCompleted: 3, avgScore: 78 },
-  { id: 3, name: "Carol Davis", email: "carol@example.com", status: "inactive", examsCompleted: 2, avgScore: 92 },
-  { id: 4, name: "David Wilson", email: "david@example.com", status: "active", examsCompleted: 4, avgScore: 73 },
-]
+type DbExam = {
+  id: string
+  title: string
+  type: string
+  duration_min: number
+  status: string
+  classroom_id: string | null
+}
 
-const mockExams = [
-  {
-    id: 1,
-    title: "Mathematics Quiz 1",
-    type: "quiz",
-    duration: 30,
-    students: 25,
-    completed: 20,
-    avgScore: 82,
-    status: "active",
-  },
-  {
-    id: 2,
-    title: "Physics Midterm",
-    type: "midterm",
-    duration: 90,
-    students: 30,
-    completed: 28,
-    avgScore: 76,
-    status: "completed",
-  },
-  {
-    id: 3,
-    title: "Chemistry Final",
-    type: "final",
-    duration: 120,
-    students: 22,
-    completed: 0,
-    avgScore: 0,
-    status: "draft",
-  },
-]
+type DbStudent = {
+  id: string
+  name: string | null
+  email: string
+  status: string
+}
 
-const mockAlerts = [
-  { id: 1, type: "warning", message: "Suspicious activity detected for student Alice Johnson", time: "2 min ago" },
-  { id: 2, type: "info", message: "New exam submission from Bob Smith", time: "5 min ago" },
-  { id: 3, type: "error", message: "Potential cheating attempt flagged in Physics Midterm", time: "10 min ago" },
-]
+type DbAlert = {
+  id: string
+  event_type: string
+  message: string
+  created_at: string
+}
 
 export function TeacherDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [activeTab, setActiveTab] = useState("overview")
+  const [exams, setExams] = useState<DbExam[]>([])
+  const [students, setStudents] = useState<DbStudent[]>([])
+  const [alerts, setAlerts] = useState<DbAlert[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true)
+      const { data: userData } = await supabase.auth.getUser()
+      const teacherId = userData.user?.id || null
+      setCurrentUserId(teacherId)
+      // classrooms taught by teacher
+      const { data: classroomRows } = await supabase
+        .from("classrooms")
+        .select("id")
+        .eq("teacher_id", teacherId)
+      const classroomIds = (classroomRows || []).map((c) => c.id)
+
+      // exams in those classrooms
+      if (classroomIds.length) {
+        const { data: examRows } = await supabase
+          .from("exams")
+          .select("id,title,type,duration_min,status,classroom_id")
+          .in("classroom_id", classroomIds)
+          .order("created_at", { ascending: false })
+        setExams(examRows || [])
+      } else {
+        setExams([])
+      }
+
+      // students via memberships across these classrooms
+      if (classroomIds.length) {
+        const { data: memberRows } = await supabase
+          .from("classroom_memberships")
+          .select("user_id,status,profiles:profiles!inner(user_id,name,email)")
+          .in("classroom_id", classroomIds)
+        const uniq = new Map<string, DbStudent>()
+        ;(memberRows || []).forEach((m: any) => {
+          const u = m.profiles
+          if (!uniq.has(u.user_id))
+            uniq.set(u.user_id, { id: u.user_id, name: u.name, email: u.email, status: m.status })
+        })
+        setStudents(Array.from(uniq.values()))
+      } else {
+        setStudents([])
+      }
+
+      // alerts from security_events (latest 5)
+      const { data: alertRows } = await supabase
+        .from("security_events")
+        .select("id,event_type,message,created_at")
+        .order("created_at", { ascending: false })
+        .limit(5)
+      setAlerts(alertRows || [])
+
+      setLoading(false)
+    }
+    load()
+  }, [])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
@@ -151,8 +189,8 @@ export function TeacherDashboard() {
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">124</div>
-                  <p className="text-xs text-muted-foreground">+12 from last month</p>
+                  <div className="text-2xl font-bold">{students.length}</div>
+                  <p className="text-xs text-muted-foreground">Total across your classes</p>
                 </CardContent>
               </Card>
 
@@ -162,8 +200,8 @@ export function TeacherDashboard() {
                   <BookOpen className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">8</div>
-                  <p className="text-xs text-muted-foreground">3 scheduled today</p>
+                  <div className="text-2xl font-bold">{exams.filter((e) => e.status !== "completed").length}</div>
+                  <p className="text-xs text-muted-foreground">Active or scheduled</p>
                 </CardContent>
               </Card>
 
@@ -173,8 +211,8 @@ export function TeacherDashboard() {
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">78.5%</div>
-                  <p className="text-xs text-muted-foreground">+2.1% from last week</p>
+                  <div className="text-2xl font-bold">—</div>
+                  <p className="text-xs text-muted-foreground">Avg from attempts (todo)</p>
                 </CardContent>
               </Card>
 
@@ -184,8 +222,8 @@ export function TeacherDashboard() {
                   <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">3</div>
-                  <p className="text-xs text-muted-foreground">2 resolved today</p>
+                  <div className="text-2xl font-bold">{alerts.length}</div>
+                  <p className="text-xs text-muted-foreground">Latest alerts</p>
                 </CardContent>
               </Card>
             </div>
@@ -199,12 +237,12 @@ export function TeacherDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {mockExams.slice(0, 3).map((exam) => (
+                    {exams.slice(0, 3).map((exam) => (
                       <div key={exam.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
                           <p className="font-medium">{exam.title}</p>
                           <p className="text-sm text-muted-foreground">
-                            {exam.completed}/{exam.students} completed • Avg: {exam.avgScore}%
+                            {exam.type} • {exam.duration_min} min
                           </p>
                         </div>
                         <Badge
@@ -227,20 +265,20 @@ export function TeacherDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {mockAlerts.map((alert) => (
+                    {alerts.map((alert) => (
                       <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
                         <div
                           className={`h-2 w-2 rounded-full mt-2 ${
-                            alert.type === "error"
+                            alert.event_type === "error"
                               ? "bg-destructive"
-                              : alert.type === "warning"
+                              : alert.event_type === "warning"
                                 ? "bg-yellow-500"
                                 : "bg-blue-500"
                           }`}
                         />
                         <div className="flex-1">
                           <p className="text-sm">{alert.message}</p>
-                          <p className="text-xs text-muted-foreground">{alert.time}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(alert.created_at).toLocaleString()}</p>
                         </div>
                       </div>
                     ))}
@@ -252,7 +290,7 @@ export function TeacherDashboard() {
 
           {/* Classrooms Tab */}
           <TabsContent value="classrooms" className="space-y-6">
-            <ClassroomSystem userRole="teacher" />
+            <ClassroomSystem />
           </TabsContent>
 
           {/* Students Tab */}
@@ -298,11 +336,15 @@ export function TeacherDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {mockStudents.map((student) => (
+                      {students
+                        .filter((s) =>
+                          [s.name || "", s.email].some((v) => v.toLowerCase().includes(searchTerm.toLowerCase())),
+                        )
+                        .map((student) => (
                         <tr key={student.id} className="border-b">
                           <td className="p-4">
                             <div>
-                              <p className="font-medium">{student.name}</p>
+                              <p className="font-medium">{student.name || student.email.split("@")[0]}</p>
                               <p className="text-sm text-muted-foreground">{student.email}</p>
                             </div>
                           </td>
@@ -311,8 +353,8 @@ export function TeacherDashboard() {
                               {student.status}
                             </Badge>
                           </td>
-                          <td className="p-4">{student.examsCompleted}</td>
-                          <td className="p-4">{student.avgScore}%</td>
+                          <td className="p-4">—</td>
+                          <td className="p-4">—</td>
                           <td className="p-4">
                             <div className="flex items-center gap-2">
                               <Button size="sm" variant="outline">
@@ -349,7 +391,7 @@ export function TeacherDashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {mockExams.map((exam) => (
+              {exams.map((exam) => (
                 <Card key={exam.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -363,22 +405,22 @@ export function TeacherDashboard() {
                       </Badge>
                     </div>
                     <CardDescription>
-                      {exam.type.charAt(0).toUpperCase() + exam.type.slice(1)} • {exam.duration} minutes
+                      {exam.type.charAt(0).toUpperCase() + exam.type.slice(1)} • {exam.duration_min} minutes
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Students:</span>
-                        <span>{exam.students}</span>
+                        <span>—</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Completed:</span>
-                        <span>{exam.completed}</span>
+                        <span>—</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Average Score:</span>
-                        <span>{exam.avgScore}%</span>
+                        <span>—</span>
                       </div>
                       <div className="flex items-center gap-2 pt-2">
                         <Button size="sm" variant="outline" className="flex-1 bg-transparent">

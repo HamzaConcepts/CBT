@@ -6,6 +6,8 @@ import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Suspense } from "react"
 import "./globals.css"
+import { Toaster } from "@/components/ui/sonner"
+import { AccountButton } from "@/components/account-button"
 
 export const metadata: Metadata = {
   title: "CBT Platform - Computer-Based Testing System",
@@ -27,6 +29,8 @@ export default function RootLayout({
           </ThemeProvider>
         </Suspense>
         <Analytics />
+        <Toaster />
+        <AccountButton />
       </body>
     </html>
   )

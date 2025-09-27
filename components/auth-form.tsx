@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState } from "react"
+import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,22 +14,67 @@ import { GraduationCap, Mail, Phone, Lock, User, Sparkles } from "lucide-react"
 export function AuthForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [authMode, setAuthMode] = useState<"login" | "signup">("login")
-  const [role, setRole] = useState<"teacher" | "student">("student")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [fullName, setFullName] = useState("")
+  const [phone, setPhone] = useState("")
+
+  // No persistent listener; we only redirect after explicit auth success
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-
-    // Simulate authentication
-    setTimeout(() => {
-      setIsLoading(false)
-      // Redirect based on role
-      if (role === "teacher") {
-        window.location.href = "/teacher/dashboard"
+    try {
+      if (authMode === "login") {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw error
+        if (data.session?.user) {
+          window.location.href = "/dashboard"
+          return
+        }
       } else {
-        window.location.href = "/student/dashboard"
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name: fullName, role: "USER", phone },
+          },
+        })
+        if (error) throw error
+        // Create or upsert profile row
+        const userId = data.user?.id
+        if (userId) {
+          const { error: profileError } = await supabase.from("profiles").upsert(
+            {
+              user_id: userId,
+              email,
+              name: fullName,
+              role: "USER",
+              phone,
+            },
+            { onConflict: "user_id" }
+          )
+          if (profileError) throw profileError
+        }
+        // If email confirmation is disabled and session exists, redirect now
+        if (data.session?.user) {
+          window.location.href = "/dashboard"
+          return
+        }
       }
-    }, 2000)
+
+      // Check current user; only redirect if authenticated
+      const { data: sessionData } = await supabase.auth.getUser()
+      const userId = sessionData.user?.id
+      if (userId) {
+        window.location.href = "/dashboard"
+      }
+    } catch (err) {
+      console.error(err)
+      alert((err as Error).message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -78,6 +124,8 @@ export function AuthForm() {
                     type="email"
                     placeholder="Enter your email or phone"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
                   />
                 </div>
@@ -94,25 +142,14 @@ export function AuthForm() {
                     type="password"
                     placeholder="Enter your password"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="role" className="text-sm font-medium">
-                  Select Role
-                </Label>
-                <Select value={role} onValueChange={(value) => setRole(value as "teacher" | "student")}>
-                  <SelectTrigger className="h-12 bg-input/50 border-border/50">
-                    <SelectValue placeholder="Choose your role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="student">🎓 Student</SelectItem>
-                    <SelectItem value="teacher">👨‍🏫 Teacher</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Role selection removed: users can create or join classes; roles per classroom */}
 
               <Button
                 type="submit"
@@ -144,6 +181,8 @@ export function AuthForm() {
                     type="text"
                     placeholder="Enter your full name"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
                     required
                   />
                 </div>
@@ -160,6 +199,8 @@ export function AuthForm() {
                     type="email"
                     placeholder="Enter your email"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
                   />
                 </div>
@@ -176,6 +217,8 @@ export function AuthForm() {
                     type="tel"
                     placeholder="Enter your phone number"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
                     required
                   />
                 </div>
@@ -192,25 +235,14 @@ export function AuthForm() {
                     type="password"
                     placeholder="Create a strong password"
                     className="pl-10 h-12 bg-input/50 border-border/50 focus:bg-input focus:border-primary/50"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="signupRole" className="text-sm font-medium">
-                  Select Role
-                </Label>
-                <Select value={role} onValueChange={(value) => setRole(value as "teacher" | "student")}>
-                  <SelectTrigger className="h-12 bg-input/50 border-border/50">
-                    <SelectValue placeholder="Choose your role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="student">🎓 Student</SelectItem>
-                    <SelectItem value="teacher">👨‍🏫 Teacher</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Role selection removed on signup */}
 
               <Button
                 type="submit"

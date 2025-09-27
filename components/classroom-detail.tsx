@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,113 +39,76 @@ import {
   AlertCircle,
 } from "lucide-react"
 
-// Mock data for classroom details
-const mockClassroom = {
-  id: 1,
-  name: "Advanced Mathematics",
-  subject: "Mathematics",
-  teacher: "Dr. Sarah Johnson",
-  code: "MATH2024",
-  students: 28,
-  assignments: 5,
-  quizzes: 3,
-  color: "bg-gradient-to-br from-blue-500 to-purple-600",
-  description: "Advanced calculus and linear algebra concepts",
-  schedule: "Mon, Wed, Fri - 10:00 AM",
-  room: "Room 204",
+import { supabase } from "@/lib/supabaseClient"
+
+type DbClassroom = {
+  id: string
+  name: string
+  subject: string | null
+  code: string
+  description: string | null
+  schedule: string | null
+  room: string | null
+  color: string | null
+  teacher_id: string
 }
 
-const mockStudents = [
-  {
-    id: 1,
-    name: "Alice Johnson",
-    email: "alice@example.com",
-    status: "active",
-    joinDate: "2024-01-15",
-    lastActive: "2 hours ago",
-    avgScore: 85,
-  },
-  {
-    id: 2,
-    name: "Bob Smith",
-    email: "bob@example.com",
-    status: "active",
-    joinDate: "2024-01-16",
-    lastActive: "1 day ago",
-    avgScore: 78,
-  },
-  {
-    id: 3,
-    name: "Carol Davis",
-    email: "carol@example.com",
-    status: "inactive",
-    joinDate: "2024-01-14",
-    lastActive: "1 week ago",
-    avgScore: 92,
-  },
-  {
-    id: 4,
-    name: "David Wilson",
-    email: "david@example.com",
-    status: "active",
-    joinDate: "2024-01-17",
-    lastActive: "30 min ago",
-    avgScore: 73,
-  },
-]
+type DbTeacher = {
+  user_id: string
+  name: string | null
+  email: string
+}
 
-const mockAssignments = [
-  {
-    id: 1,
-    title: "Calculus Problem Set 1",
-    type: "assignment",
-    dueDate: "2024-01-25",
-    points: 100,
-    submitted: 22,
-    graded: 18,
-    status: "active",
-    description: "Complete problems 1-15 from Chapter 3",
-  },
-  {
-    id: 2,
-    title: "Linear Algebra Quiz",
-    type: "quiz",
-    dueDate: "2024-01-20",
-    points: 50,
-    submitted: 28,
-    graded: 28,
-    status: "completed",
-    description: "Matrix operations and transformations",
-  },
-  {
-    id: 3,
-    title: "Midterm Exam",
-    type: "exam",
-    dueDate: "2024-02-01",
-    points: 200,
-    submitted: 0,
-    graded: 0,
-    status: "draft",
-    description: "Comprehensive exam covering chapters 1-5",
-  },
-]
+type DbRosterRow = {
+  user_id: string
+  status: string
+  joined_at: string
+  role: string
+  profiles: { user_id: string; name: string | null; email: string }
+}
 
-const mockAnnouncements = [
-  {
-    id: 1,
-    title: "Midterm Exam Schedule",
-    content: "The midterm exam will be held on February 1st. Please review chapters 1-5.",
-    date: "2024-01-18",
-    author: "Dr. Sarah Johnson",
-  },
-  {
-    id: 2,
-    title: "Office Hours Update",
-    content: "Office hours have been moved to Tuesdays and Thursdays, 2-4 PM.",
-    date: "2024-01-16",
-    author: "Dr. Sarah Johnson",
-  },
-]
+type DbAssignment = {
+  id: string
+  title: string
+  type: string
+  due_at: string | null
+  points: number | null
+  status: string
+  description: string | null
+}
+
+type DbAnnouncement = {
+  id: string
+  title: string
+  content: string
+  author: string | null
+  created_at: string
+}
+
+type DbSubmission = {
+  id: string
+  assignment_id: string
+  user_id: string
+  submitted_at: string
+  score: number | null
+  status: string
+  content: string | null
+  assignments: {
+    title: string
+    type: string
+    due_at: string | null
+    points: number | null
+  }
+}
+
+type DbMaterial = {
+  id: string
+  title: string
+  description: string | null
+  file_url: string | null
+  uploaded_at: string
+  type: string
+}
 
 interface ClassroomDetailProps {
   classroomId: string
@@ -168,10 +131,112 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
     content: "",
   })
 
-  // In a real app, you would fetch classroom data based on classroomId
-  const classroom = mockClassroom
+  const [classroom, setClassroom] = useState<DbClassroom | null>(null)
+  const [teacher, setTeacher] = useState<DbTeacher | null>(null)
+  const [announcements, setAnnouncements] = useState<DbAnnouncement[]>([])  
+  const [assignments, setAssignments] = useState<DbAssignment[]>([])  
+  const [roster, setRoster] = useState<DbRosterRow[]>([])
+  const [materials, setMaterials] = useState<DbMaterial[]>([])  
+  const [submissions, setSubmissions] = useState<DbSubmission[]>([])  
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    const load = async () => {
+      // Get current user
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData.user?.id || null
+      setCurrentUserId(uid)
+
+      if (!uid) return
+
+      // Check user role in this classroom
+      const { data: membership } = await supabase
+        .from("classroom_memberships")
+        .select("role")
+        .eq("classroom_id", classroomId)
+        .eq("user_id", uid)
+        .maybeSingle()
+
+      const role = membership?.role || "STUDENT"
+      setUserRole(role)
+
+      const { data: cls } = await supabase
+        .from("classrooms")
+        .select("id,name,subject,code,description,schedule,room,color,teacher_id")
+        .eq("id", classroomId)
+        .maybeSingle()
+      setClassroom(cls)
+
+      // Fetch teacher information
+      if (cls?.teacher_id) {
+        const { data: teacherData } = await supabase
+          .from("profiles")
+          .select("user_id,name,email")
+          .eq("user_id", cls.teacher_id)
+          .maybeSingle()
+        setTeacher(teacherData)
+      }
+
+      const { data: anns } = await supabase
+        .from("announcements")
+        .select("id,title,content,author,created_at")
+        .eq("classroom_id", classroomId)
+        .order("created_at", { ascending: false })
+      setAnnouncements(anns || [])
+
+      const { data: asg } = await supabase
+        .from("assignments")
+        .select("id,title,type,due_at,points,status,description")
+        .eq("classroom_id", classroomId)
+        .order("created_at", { ascending: false })
+      setAssignments(asg || [])
+
+      // Load materials
+      const { data: mats } = await supabase
+        .from("materials")
+        .select("id,title,description,file_url,uploaded_at,type")
+        .eq("classroom_id", classroomId)
+        .order("uploaded_at", { ascending: false })
+      setMaterials(mats || [])
+
+      if (role === "TEACHER") {
+        // Teachers see all students (excluding teachers)
+        const { data: members, error } = await supabase
+          .from("classroom_memberships")
+          .select(`
+            user_id,
+            status,
+            joined_at,
+            role,
+            profiles(user_id,name,email)
+          `)
+          .eq("classroom_id", classroomId)
+          .eq("status", "active")
+          .eq("role", "STUDENT")
+        
+        console.log("Students query result:", { members, error })
+        setRoster((members as any) || [])
+      } else {
+        // Students see their own submissions (only after assignments are loaded)
+        if (assignments.length > 0) {
+          const { data: subs } = await supabase
+            .from("submissions")
+            .select(`
+              id,assignment_id,user_id,submitted_at,score,status,content,
+              assignments(title,type,due_at,points)
+            `)
+            .eq("user_id", uid)
+            .in("assignment_id", assignments.map(a => a.id))
+          setSubmissions((subs as any) || [])
+        }
+      }
+    }
+    load()
+  }, [classroomId])
 
   const copyClassCode = () => {
+    if (!classroom) return
     navigator.clipboard.writeText(classroom.code)
     setCopiedCode(true)
     setTimeout(() => setCopiedCode(false), 2000)
@@ -206,16 +271,21 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
               Back
             </Button>
 
-            <div className={`${classroom.color} p-4 rounded-lg text-white flex-1`}>
+            <div className={`${classroom?.color || "bg-gradient-to-br from-blue-500 to-purple-600"} p-4 rounded-lg text-white flex-1`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold">{classroom.name}</h1>
+                  <h1 className="text-2xl font-bold">{classroom?.name || "Classroom"}</h1>
                   <p className="text-white/90">
-                    {classroom.subject} • {classroom.teacher}
+                    {classroom?.subject || ""}
                   </p>
                   <p className="text-white/80 text-sm">
-                    {classroom.schedule} • {classroom.room}
+                    {classroom?.schedule || ""} {classroom?.room ? `• ${classroom.room}` : ""}
                   </p>
+                  {teacher && (
+                    <p className="text-white/70 text-xs mt-1">
+                      Instructor: {teacher.name || teacher.email}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -223,22 +293,22 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                     <div className="flex items-center gap-4 text-sm">
                       <div className="flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        <span>{classroom.students}</span>
+                        <span>{roster.length}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <BookOpen className="w-4 h-4" />
-                        <span>{classroom.assignments}</span>
+                        <span>{assignments.length}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Award className="w-4 h-4" />
-                        <span>{classroom.quizzes}</span>
+                        <span>{assignments.filter((a) => a.type === "quiz").length}</span>
                       </div>
                     </div>
                   </div>
 
                   <Button variant="ghost" size="sm" onClick={copyClassCode} className="text-white hover:bg-white/20">
                     {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span className="ml-2 font-mono">{classroom.code}</span>
+                    <span className="ml-2 font-mono">{classroom?.code}</span>
                   </Button>
                 </div>
               </div>
@@ -249,7 +319,7 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
 
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 bg-card/50 backdrop-blur-sm">
+          <TabsList className={`grid w-full ${userRole === 'STUDENT' ? 'grid-cols-4' : 'grid-cols-5'} bg-card/50 backdrop-blur-sm`}>
             <TabsTrigger
               value="overview"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -260,19 +330,21 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
               value="assignments"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
-              Assignments
+              {userRole === 'STUDENT' ? 'My Work' : 'Assignments'}
             </TabsTrigger>
-            <TabsTrigger
-              value="students"
-              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              Students
-            </TabsTrigger>
+            {userRole === 'TEACHER' && (
+              <TabsTrigger
+                value="students"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Students
+              </TabsTrigger>
+            )}
             <TabsTrigger
               value="grades"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
-              Grades
+              {userRole === 'STUDENT' ? 'My Grades' : 'Grades'}
             </TabsTrigger>
             <TabsTrigger
               value="settings"
@@ -297,71 +369,125 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                         </CardTitle>
                         <CardDescription>Latest updates and news</CardDescription>
                       </div>
-                      <Dialog open={isCreateAnnouncementOpen} onOpenChange={setIsCreateAnnouncementOpen}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" className="gradient-primary">
-                            <Plus className="w-4 h-4 mr-2" />
-                            New
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Create Announcement</DialogTitle>
-                            <DialogDescription>Share important updates with your class</DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="announcementTitle">Title</Label>
-                              <Input
-                                id="announcementTitle"
-                                placeholder="Announcement title"
-                                value={newAnnouncement.title}
-                                onChange={(e) => setNewAnnouncement((prev) => ({ ...prev, title: e.target.value }))}
-                              />
+                      {userRole === 'TEACHER' && (
+                        <Dialog open={isCreateAnnouncementOpen} onOpenChange={setIsCreateAnnouncementOpen}>
+                          <DialogTrigger asChild>
+                            <Button size="sm" className="gradient-primary">
+                              <Plus className="w-4 h-4 mr-2" />
+                              New
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Create Announcement</DialogTitle>
+                              <DialogDescription>Share important updates with your class</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="announcementTitle">Title</Label>
+                                <Input
+                                  id="announcementTitle"
+                                  placeholder="Announcement title"
+                                  value={newAnnouncement.title}
+                                  onChange={(e) => setNewAnnouncement((prev) => ({ ...prev, title: e.target.value }))}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="announcementContent">Content</Label>
+                                <Textarea
+                                  id="announcementContent"
+                                  placeholder="Write your announcement..."
+                                  rows={4}
+                                  value={newAnnouncement.content}
+                                  onChange={(e) => setNewAnnouncement((prev) => ({ ...prev, content: e.target.value }))}
+                                />
+                              </div>
+                              <div className="flex gap-2 pt-4">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setIsCreateAnnouncementOpen(false)}
+                                  className="flex-1"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button onClick={handleCreateAnnouncement} className="flex-1 gradient-primary">
+                                  <Send className="w-4 h-4 mr-2" />
+                                  Post
+                                </Button>
+                              </div>
                             </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="announcementContent">Content</Label>
-                              <Textarea
-                                id="announcementContent"
-                                placeholder="Write your announcement..."
-                                rows={4}
-                                value={newAnnouncement.content}
-                                onChange={(e) => setNewAnnouncement((prev) => ({ ...prev, content: e.target.value }))}
-                              />
-                            </div>
-                            <div className="flex gap-2 pt-4">
-                              <Button
-                                variant="outline"
-                                onClick={() => setIsCreateAnnouncementOpen(false)}
-                                className="flex-1"
-                              >
-                                Cancel
-                              </Button>
-                              <Button onClick={handleCreateAnnouncement} className="flex-1 gradient-primary">
-                                <Send className="w-4 h-4 mr-2" />
-                                Post
-                              </Button>
-                            </div>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                          </DialogContent>
+                        </Dialog>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {mockAnnouncements.map((announcement) => (
-                        <div key={announcement.id} className="p-4 border rounded-lg">
-                          <div className="flex items-start justify-between mb-2">
-                            <h4 className="font-medium">{announcement.title}</h4>
-                            <span className="text-xs text-muted-foreground">{announcement.date}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-2">{announcement.content}</p>
-                          <p className="text-xs text-muted-foreground">By {announcement.author}</p>
+                      {announcements.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Bell className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p>No announcements yet</p>
                         </div>
-                      ))}
+                      ) : (
+                        announcements.map((announcement) => (
+                          <div key={announcement.id} className="p-4 border rounded-lg">
+                            <div className="flex items-start justify-between mb-2">
+                              <h4 className="font-medium">{announcement.title}</h4>
+                              <span className="text-xs text-muted-foreground">{new Date(announcement.created_at).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">{announcement.content}</p>
+                            <p className="text-xs text-muted-foreground">By {announcement.author || "Teacher"}</p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Materials Section for Students */}
+                {userRole === 'STUDENT' && (
+                  <Card className="mt-6">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <BookOpen className="w-5 h-5" />
+                        Course Materials
+                      </CardTitle>
+                      <CardDescription>Resources and files shared by your teacher</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {materials.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                            <p>No materials available yet</p>
+                          </div>
+                        ) : (
+                          materials.map((material) => (
+                            <div key={material.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+                                  <BookOpen className="w-4 h-4 text-primary" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{material.title}</p>
+                                  <p className="text-sm text-muted-foreground">{material.description || 'No description'}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(material.uploaded_at).toLocaleDateString()}
+                                </span>
+                                <Button size="sm" variant="outline">
+                                  <Download className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               {/* Quick Stats */}
@@ -373,11 +499,11 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Total Students</span>
-                      <span className="font-medium">{classroom.students}</span>
+                      <span className="font-medium">{roster.length}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Active Assignments</span>
-                      <span className="font-medium">{mockAssignments.filter((a) => a.status === "active").length}</span>
+                      <span className="font-medium">{assignments.filter((a) => a.status === "active").length}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Avg. Grade</span>
@@ -419,155 +545,258 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
           <TabsContent value="assignments" className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">Assignments & Assessments</h2>
-                <p className="text-muted-foreground">Manage homework, quizzes, and exams</p>
+                <h2 className="text-xl font-semibold">
+                  {userRole === 'STUDENT' ? 'My Assignments' : 'Assignments & Assessments'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {userRole === 'STUDENT' 
+                    ? 'View your assignments and submission status' 
+                    : 'Manage homework, quizzes, and exams'
+                  }
+                </p>
               </div>
-              <Dialog open={isCreateAssignmentOpen} onOpenChange={setIsCreateAssignmentOpen}>
-                <DialogTrigger asChild>
-                  <Button className="gradient-primary">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create Assignment
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Assignment</DialogTitle>
-                    <DialogDescription>Set up a new assignment or assessment</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="assignmentTitle">Title</Label>
-                      <Input
-                        id="assignmentTitle"
-                        placeholder="Assignment title"
-                        value={newAssignment.title}
-                        onChange={(e) => setNewAssignment((prev) => ({ ...prev, title: e.target.value }))}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+              {userRole === 'TEACHER' && (
+                <Dialog open={isCreateAssignmentOpen} onOpenChange={setIsCreateAssignmentOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="gradient-primary">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Assignment
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Create New Assignment</DialogTitle>
+                      <DialogDescription>Set up a new assignment or assessment</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label htmlFor="assignmentType">Type</Label>
-                        <Select
-                          value={newAssignment.type}
-                          onValueChange={(value) => setNewAssignment((prev) => ({ ...prev, type: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="assignment">Assignment</SelectItem>
-                            <SelectItem value="quiz">Quiz</SelectItem>
-                            <SelectItem value="exam">Exam</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="assignmentPoints">Points</Label>
+                        <Label htmlFor="assignmentTitle">Title</Label>
                         <Input
-                          id="assignmentPoints"
-                          type="number"
-                          placeholder="100"
-                          value={newAssignment.points}
-                          onChange={(e) => setNewAssignment((prev) => ({ ...prev, points: e.target.value }))}
+                          id="assignmentTitle"
+                          placeholder="Assignment title"
+                          value={newAssignment.title}
+                          onChange={(e) => setNewAssignment((prev) => ({ ...prev, title: e.target.value }))}
                         />
                       </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="assignmentDueDate">Due Date</Label>
-                      <Input
-                        id="assignmentDueDate"
-                        type="date"
-                        value={newAssignment.dueDate}
-                        onChange={(e) => setNewAssignment((prev) => ({ ...prev, dueDate: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="assignmentDescription">Description</Label>
-                      <Textarea
-                        id="assignmentDescription"
-                        placeholder="Assignment instructions..."
-                        rows={3}
-                        value={newAssignment.description}
-                        onChange={(e) => setNewAssignment((prev) => ({ ...prev, description: e.target.value }))}
-                      />
-                    </div>
-                    <div className="flex gap-2 pt-4">
-                      <Button variant="outline" onClick={() => setIsCreateAssignmentOpen(false)} className="flex-1">
-                        Cancel
-                      </Button>
-                      <Button onClick={handleCreateAssignment} className="flex-1 gradient-primary">
-                        Create Assignment
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {mockAssignments.map((assignment) => (
-                <Card key={assignment.id} className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{assignment.title}</CardTitle>
-                        <CardDescription className="flex items-center gap-2">
-                          <Badge variant="outline">{assignment.type}</Badge>
-                          <span>{assignment.points} pts</span>
-                        </CardDescription>
-                      </div>
-                      <Badge
-                        variant={
-                          assignment.status === "active"
-                            ? "default"
-                            : assignment.status === "completed"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {assignment.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground">{assignment.description}</p>
-
-                      <div className="flex items-center gap-2 text-sm">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span>Due: {new Date(assignment.dueDate).toLocaleDateString()}</span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Submitted:</span>
-                          <span className="ml-1 font-medium">
-                            {assignment.submitted}/{classroom.students}
-                          </span>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="assignmentType">Type</Label>
+                          <Select
+                            value={newAssignment.type}
+                            onValueChange={(value) => setNewAssignment((prev) => ({ ...prev, type: value }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="assignment">Assignment</SelectItem>
+                              <SelectItem value="quiz">Quiz</SelectItem>
+                              <SelectItem value="exam">Exam</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">Graded:</span>
-                          <span className="ml-1 font-medium">
-                            {assignment.graded}/{assignment.submitted}
-                          </span>
+                        <div className="space-y-2">
+                          <Label htmlFor="assignmentPoints">Points</Label>
+                          <Input
+                            id="assignmentPoints"
+                            type="number"
+                            placeholder="100"
+                            value={newAssignment.points}
+                            onChange={(e) => setNewAssignment((prev) => ({ ...prev, points: e.target.value }))}
+                          />
                         </div>
                       </div>
-
-                      <div className="flex gap-2 pt-2">
-                        <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                          <Eye className="w-4 h-4 mr-2" />
-                          View
+                      <div className="space-y-2">
+                        <Label htmlFor="assignmentDueDate">Due Date</Label>
+                        <Input
+                          id="assignmentDueDate"
+                          type="date"
+                          value={newAssignment.dueDate}
+                          onChange={(e) => setNewAssignment((prev) => ({ ...prev, dueDate: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="assignmentDescription">Description</Label>
+                        <Textarea
+                          id="assignmentDescription"
+                          placeholder="Assignment instructions..."
+                          rows={3}
+                          value={newAssignment.description}
+                          onChange={(e) => setNewAssignment((prev) => ({ ...prev, description: e.target.value }))}
+                        />
+                      </div>
+                      <div className="flex gap-2 pt-4">
+                        <Button variant="outline" onClick={() => setIsCreateAssignmentOpen(false)} className="flex-1">
+                          Cancel
                         </Button>
-                        <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                          <Edit className="w-4 h-4 mr-2" />
-                          Edit
+                        <Button onClick={handleCreateAssignment} className="flex-1 gradient-primary">
+                          Create Assignment
                         </Button>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
+
+            {userRole === 'STUDENT' ? (
+              // Student view - show their submissions
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {assignments.map((assignment) => {
+                  const submission = submissions.find(s => s.assignment_id === assignment.id)
+                  const isOverdue = assignment.due_at && new Date(assignment.due_at) < new Date() && !submission
+                  
+                  return (
+                    <Card key={assignment.id} className="hover:shadow-lg transition-shadow">
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-lg">{assignment.title}</CardTitle>
+                            <CardDescription className="flex items-center gap-2">
+                              <Badge variant="outline">{assignment.type}</Badge>
+                              <span>{assignment.points || 0} pts</span>
+                            </CardDescription>
+                          </div>
+                          <Badge
+                            variant={
+                              submission?.status === "submitted" 
+                                ? "default" 
+                                : submission?.status === "graded"
+                                ? "secondary"
+                                : isOverdue
+                                ? "destructive"
+                                : "outline"
+                            }
+                          >
+                            {submission?.status === "graded" 
+                              ? "Graded" 
+                              : submission?.status === "submitted"
+                              ? "Submitted"
+                              : isOverdue
+                              ? "Overdue"
+                              : "Not Submitted"
+                            }
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <p className="text-sm text-muted-foreground">{assignment.description}</p>
+
+                          <div className="flex items-center gap-2 text-sm">
+                            <Calendar className="w-4 h-4 text-muted-foreground" />
+                            <span>Due: {assignment.due_at ? new Date(assignment.due_at).toLocaleDateString() : "TBD"}</span>
+                          </div>
+
+                          {submission && (
+                            <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Submitted:</span>
+                                <span className="font-medium">
+                                  {new Date(submission.submitted_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                              {submission.score !== null && (
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-muted-foreground">Score:</span>
+                                  <span className="font-medium">
+                                    {submission.score}/{assignment.points || 0}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex gap-2 pt-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="flex-1 bg-transparent"
+                              onClick={() => window.location.href = `/assignment/${assignment.id}`}
+                            >
+                              <Eye className="w-4 h-4 mr-2" />
+                              View
+                            </Button>
+                            {!submission && !isOverdue && (
+                              <Button 
+                                size="sm" 
+                                className="flex-1 gradient-primary"
+                                onClick={() => window.location.href = `/assignment/${assignment.id}/submit`}
+                              >
+                                <Upload className="w-4 h-4 mr-2" />
+                                Submit
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              // Teacher view - existing assignment management
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {assignments.map((assignment) => (
+                  <Card key={assignment.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-lg">{assignment.title}</CardTitle>
+                          <CardDescription className="flex items-center gap-2">
+                            <Badge variant="outline">{assignment.type}</Badge>
+                            <span>{assignment.points || 0} pts</span>
+                          </CardDescription>
+                        </div>
+                        <Badge
+                          variant={
+                            assignment.status === "active"
+                              ? "default"
+                              : assignment.status === "completed"
+                                ? "secondary"
+                                : "outline"
+                          }
+                        >
+                          {assignment.status}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">{assignment.description}</p>
+
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                          <span>Due: {assignment.due_at ? new Date(assignment.due_at).toLocaleDateString() : "TBD"}</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">Submitted:</span>
+                            <span className="ml-1 font-medium">—/{roster.length}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Graded:</span>
+                            <span className="ml-1 font-medium">—/—</span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 pt-2">
+                          <Button size="sm" variant="outline" className="flex-1 bg-transparent">
+                            <Eye className="w-4 h-4 mr-2" />
+                            View
+                          </Button>
+                          <Button size="sm" variant="outline" className="flex-1 bg-transparent">
+                            <Edit className="w-4 h-4 mr-2" />
+                            Edit
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Students Tab */}
@@ -604,12 +833,12 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {mockStudents.map((student) => (
-                        <tr key={student.id} className="border-b hover:bg-muted/30">
+                      {roster.map((student) => (
+                        <tr key={student.user_id} className="border-b hover:bg-muted/30">
                           <td className="p-4">
                             <div>
-                              <p className="font-medium">{student.name}</p>
-                              <p className="text-sm text-muted-foreground">{student.email}</p>
+                              <p className="font-medium">{student.profiles?.name || "N/A"}</p>
+                              <p className="text-sm text-muted-foreground">{student.profiles?.email}</p>
                             </div>
                           </td>
                           <td className="p-4">
@@ -617,19 +846,13 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                               {student.status}
                             </Badge>
                           </td>
-                          <td className="p-4 text-sm">{new Date(student.joinDate).toLocaleDateString()}</td>
-                          <td className="p-4 text-sm">{student.lastActive}</td>
+                          <td className="p-4 text-sm">{new Date(student.joined_at).toLocaleDateString()}</td>
+                          <td className="p-4 text-sm">N/A</td>
                           <td className="p-4">
                             <div className="flex items-center gap-2">
-                              <span className="font-medium">{student.avgScore}%</span>
+                              <span className="font-medium">N/A</span>
                               <div
-                                className={`w-2 h-2 rounded-full ${
-                                  student.avgScore >= 80
-                                    ? "bg-green-500"
-                                    : student.avgScore >= 70
-                                      ? "bg-yellow-500"
-                                      : "bg-red-500"
-                                }`}
+                                className={`w-2 h-2 rounded-full bg-gray-300`}
                               ></div>
                             </div>
                           </td>
@@ -659,269 +882,606 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
           <TabsContent value="grades" className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">Grade Management</h2>
-                <p className="text-muted-foreground">View and manage student grades</p>
+                <h2 className="text-xl font-semibold">
+                  {userRole === 'STUDENT' ? 'My Grades' : 'Grade Management'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {userRole === 'STUDENT' 
+                    ? 'View your performance across all assessments'
+                    : 'View and manage student grades'
+                  }
+                </p>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline">
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Grades
-                </Button>
-                <Button className="gradient-primary">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Grade Assignment
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5" />
-                    Class Average
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold">82.5%</div>
-                  <p className="text-sm text-muted-foreground">+2.3% from last month</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="w-5 h-5" />
-                    Pass Rate
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold">89%</div>
-                  <p className="text-sm text-muted-foreground">25 of 28 students</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Award className="w-5 h-5" />
-                    Top Performer
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-lg font-bold">Carol Davis</div>
-                  <p className="text-sm text-muted-foreground">92% average</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Grade Overview</CardTitle>
-                <CardDescription>Student performance across all assignments</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {mockStudents.map((student) => (
-                    <div key={student.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div>
-                          <p className="font-medium">{student.name}</p>
-                          <p className="text-sm text-muted-foreground">{student.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-medium">{student.avgScore}%</p>
-                          <p className="text-sm text-muted-foreground">
-                            {student.avgScore >= 80
-                              ? "Excellent"
-                              : student.avgScore >= 70
-                                ? "Good"
-                                : "Needs Improvement"}
-                          </p>
-                        </div>
-                        <div
-                          className={`w-3 h-3 rounded-full ${
-                            student.avgScore >= 80
-                              ? "bg-green-500"
-                              : student.avgScore >= 70
-                                ? "bg-yellow-500"
-                                : "bg-red-500"
-                          }`}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
+              {userRole === 'TEACHER' && (
+                <div className="flex gap-2">
+                  <Button variant="outline">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Grades
+                  </Button>
+                  <Button className="gradient-primary">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Grade Assignment
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </div>
+
+            {userRole === 'STUDENT' ? (
+              // Student grades view
+              <div className="space-y-6">
+                {/* Student Performance Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Overall Average
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {submissions.filter(s => s.score !== null).length > 0
+                          ? Math.round(
+                              submissions.filter(s => s.score !== null)
+                                .reduce((acc, sub) => {
+                                  const assignment = assignments.find(a => a.id === sub.assignment_id)
+                                  return acc + (sub.score! / (assignment?.points || 1)) * 100
+                                }, 0) / submissions.filter(s => s.score !== null).length
+                            )
+                          : 0}%
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Based on {submissions.filter(s => s.score !== null).length} graded assignments
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="w-5 h-5" />
+                        Completion Rate
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {assignments.length > 0 
+                          ? Math.round((submissions.length / assignments.length) * 100)
+                          : 0}%
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {submissions.length} of {assignments.length} assignments
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Award className="w-5 h-5" />
+                        Highest Score
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {submissions.filter(s => s.score !== null).length > 0
+                          ? Math.max(...submissions.filter(s => s.score !== null).map(sub => {
+                              const assignment = assignments.find(a => a.id === sub.assignment_id)
+                              return Math.round((sub.score! / (assignment?.points || 1)) * 100)
+                            }))
+                          : 0}%
+                      </div>
+                      <p className="text-sm text-muted-foreground">Best performance</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Individual Assignment Grades */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Assignment Grades</CardTitle>
+                    <CardDescription>Your performance on each assignment</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {assignments.map((assignment) => {
+                        const submission = submissions.find(s => s.assignment_id === assignment.id)
+                        const percentage = submission && submission.score !== null && assignment.points 
+                          ? Math.round((submission.score / assignment.points) * 100)
+                          : null
+                        
+                        return (
+                          <div key={assignment.id} className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-3 h-3 rounded-full ${
+                                percentage === null 
+                                  ? 'bg-gray-300' 
+                                  : percentage >= 90 
+                                    ? 'bg-green-500'
+                                    : percentage >= 80
+                                      ? 'bg-blue-500'
+                                      : percentage >= 70
+                                        ? 'bg-yellow-500'
+                                        : 'bg-red-500'
+                              }`}></div>
+                              <div>
+                                <p className="font-medium">{assignment.title}</p>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Badge variant="outline" className="text-xs">{assignment.type}</Badge>
+                                  <span>Due: {assignment.due_at ? new Date(assignment.due_at).toLocaleDateString() : 'TBD'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              {submission?.score !== null ? (
+                                <>
+                                  <p className="font-medium text-lg">
+                                    {submission ? submission.score : 0}/{assignment.points || 0}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {percentage}%
+                                  </p>
+                                </>
+                              ) : submission ? (
+                                <p className="text-sm text-muted-foreground">
+                                  Submitted - Not graded
+                                </p>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  Not submitted
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      
+                      {assignments.length === 0 && (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Award className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p>No assignments available yet</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              // Teacher grades view - existing content
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Class Average
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">82.5%</div>
+                      <p className="text-sm text-muted-foreground">+2.3% from last month</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="w-5 h-5" />
+                        Pass Rate
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">89%</div>
+                      <p className="text-sm text-muted-foreground">25 of 28 students</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Award className="w-5 h-5" />
+                        Top Performer
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-lg font-bold">Carol Davis</div>
+                      <p className="text-sm text-muted-foreground">92% average</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Grade Overview</CardTitle>
+                    <CardDescription>Student performance across all assignments</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {roster.map((student) => (
+                        <div key={student.user_id} className="flex items-center justify-between p-4 border rounded-lg">
+                          <div className="flex items-center gap-4">
+                            <div>
+                              <p className="font-medium">{student.profiles?.name || "N/A"}</p>
+                              <p className="text-sm text-muted-foreground">{student.profiles?.email}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="font-medium">N/A</p>
+                              <p className="text-sm text-muted-foreground">N/A</p>
+                            </div>
+                            <div className="w-3 h-3 rounded-full bg-gray-300"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-6">
             <div>
-              <h2 className="text-xl font-semibold">Classroom Settings</h2>
-              <p className="text-muted-foreground">Manage classroom preferences and configurations</p>
+              <h2 className="text-xl font-semibold">
+                {userRole === 'STUDENT' ? 'Notification Settings' : 'Classroom Settings'}
+              </h2>
+              <p className="text-muted-foreground">
+                {userRole === 'STUDENT' 
+                  ? 'Manage how you receive notifications from this classroom'
+                  : 'Manage classroom preferences and configurations'
+                }
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Basic Information</CardTitle>
-                  <CardDescription>Update classroom details</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="className">Class Name</Label>
-                    <Input id="className" defaultValue={classroom.name} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="classDescription">Description</Label>
-                    <Textarea id="classDescription" defaultValue={classroom.description} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="classSchedule">Schedule</Label>
-                      <Input id="classSchedule" defaultValue={classroom.schedule} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="classRoom">Room</Label>
-                      <Input id="classRoom" defaultValue={classroom.room} />
-                    </div>
-                  </div>
-                  <Button className="w-full gradient-primary">Save Changes</Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Access Control</CardTitle>
-                  <CardDescription>Manage who can join your classroom</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Class Code</p>
-                      <p className="text-sm text-muted-foreground">Students use this to join</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="font-mono">
-                        {classroom.code}
-                      </Badge>
-                      <Button size="sm" variant="outline" onClick={copyClassCode}>
-                        {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Allow Self-Enrollment</p>
-                        <p className="text-sm text-muted-foreground">Students can join with class code</p>
+            {userRole === 'STUDENT' ? (
+              // Student settings - focus on notifications
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Bell className="w-5 h-5" />
+                      Assignment Notifications
+                    </CardTitle>
+                    <CardDescription>Get notified about assignments and due dates</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">New Assignments</p>
+                          <p className="text-sm text-muted-foreground">Alert when teacher posts new assignments</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm">
-                        Enabled
-                      </Button>
-                    </div>
 
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Require Approval</p>
-                        <p className="text-sm text-muted-foreground">Review join requests manually</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Due Date Reminders</p>
+                          <p className="text-sm text-muted-foreground">Remind me before assignment deadlines</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm">
-                        Disabled
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Notifications</CardTitle>
-                  <CardDescription>Configure notification preferences</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Assignment Submissions</p>
-                        <p className="text-sm text-muted-foreground">Get notified when students submit work</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Grade Updates</p>
+                          <p className="text-sm text-muted-foreground">Notify when assignments are graded</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm">
-                        Enabled
-                      </Button>
-                    </div>
 
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">New Student Joins</p>
-                        <p className="text-sm text-muted-foreground">Alert when someone joins the class</p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        Enabled
-                      </Button>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Grade Reminders</p>
-                        <p className="text-sm text-muted-foreground">Remind to grade pending assignments</p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        Disabled
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Danger Zone</CardTitle>
-                  <CardDescription>Irreversible actions</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-4 border border-red-200 rounded-lg bg-red-50">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-medium text-red-900">Archive Classroom</p>
-                        <p className="text-sm text-red-700 mb-3">
-                          This will archive the classroom and make it read-only. Students won't be able to submit new
-                          work.
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-red-300 text-red-700 hover:bg-red-100 bg-transparent"
-                        >
-                          Archive Classroom
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Late Submission Warnings</p>
+                          <p className="text-sm text-muted-foreground">Alert when submission is overdue</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
                         </Button>
                       </div>
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
 
-                  <div className="p-4 border border-red-200 rounded-lg bg-red-50">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-medium text-red-900">Delete Classroom</p>
-                        <p className="text-sm text-red-700 mb-3">
-                          Permanently delete this classroom and all associated data. This action cannot be undone.
-                        </p>
-                        <Button variant="destructive" size="sm">
-                          Delete Classroom
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5" />
+                      Class Communication
+                    </CardTitle>
+                    <CardDescription>Stay updated with class announcements and discussions</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Announcements</p>
+                          <p className="text-sm text-muted-foreground">Get notified about class announcements</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">New Materials</p>
+                          <p className="text-sm text-muted-foreground">Alert when teacher uploads new materials</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Schedule Changes</p>
+                          <p className="text-sm text-muted-foreground">Notify about class schedule updates</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Disabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Class Discussions</p>
+                          <p className="text-sm text-muted-foreground">Notify about new discussion posts</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Disabled
                         </Button>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Notification Preferences</CardTitle>
+                    <CardDescription>Choose how you want to receive notifications</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Email Notifications</p>
+                          <p className="text-sm text-muted-foreground">Send notifications to your email</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Push Notifications</p>
+                          <p className="text-sm text-muted-foreground">Show notifications in browser</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Disabled
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="reminderTime">Reminder Time</Label>
+                        <Select defaultValue="24h">
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1h">1 hour before</SelectItem>
+                            <SelectItem value="6h">6 hours before</SelectItem>
+                            <SelectItem value="24h">1 day before</SelectItem>
+                            <SelectItem value="48h">2 days before</SelectItem>
+                            <SelectItem value="week">1 week before</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <Button className="w-full gradient-primary">Save Preferences</Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Privacy Settings</CardTitle>
+                    <CardDescription>Control your privacy in this classroom</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Show Online Status</p>
+                          <p className="text-sm text-muted-foreground">Let others see when you're online</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Share Progress</p>
+                          <p className="text-sm text-muted-foreground">Allow teacher to share your progress with parents</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200">
+                          Enabled
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              // Teacher settings - existing classroom management content
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Basic Information</CardTitle>
+                    <CardDescription>Update classroom details</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="className">Class Name</Label>
+                      <Input id="className" defaultValue={classroom?.name || ""} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="classDescription">Description</Label>
+                      <Textarea id="classDescription" defaultValue={classroom?.description || ""} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="classSchedule">Schedule</Label>
+                        <Input id="classSchedule" defaultValue={classroom?.schedule || ""} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="classRoom">Room</Label>
+                        <Input id="classRoom" defaultValue={classroom?.room || ""} />
+                      </div>
+                    </div>
+                    <Button className="w-full gradient-primary">Save Changes</Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Access Control</CardTitle>
+                    <CardDescription>Manage who can join your classroom</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">Class Code</p>
+                        <p className="text-sm text-muted-foreground">Students use this to join</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono">
+                          {classroom?.code}
+                        </Badge>
+                        <Button size="sm" variant="outline" onClick={copyClassCode}>
+                          {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Allow Self-Enrollment</p>
+                          <p className="text-sm text-muted-foreground">Students can join with class code</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Require Approval</p>
+                          <p className="text-sm text-muted-foreground">Review join requests manually</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Disabled
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Notifications</CardTitle>
+                    <CardDescription>Configure notification preferences</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Assignment Submissions</p>
+                          <p className="text-sm text-muted-foreground">Get notified when students submit work</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">New Student Joins</p>
+                          <p className="text-sm text-muted-foreground">Alert when someone joins the class</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Enabled
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Grade Reminders</p>
+                          <p className="text-sm text-muted-foreground">Remind to grade pending assignments</p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Disabled
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Danger Zone</CardTitle>
+                    <CardDescription>Irreversible actions</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="p-4 border border-red-200 rounded-lg bg-red-50">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-medium text-red-900">Archive Classroom</p>
+                          <p className="text-sm text-red-700 mb-3">
+                            This will archive the classroom and make it read-only. Students won't be able to submit new
+                            work.
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-300 text-red-700 hover:bg-red-100 bg-transparent"
+                          >
+                            Archive Classroom
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border border-red-200 rounded-lg bg-red-50">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-medium text-red-900">Delete Classroom</p>
+                          <p className="text-sm text-red-700 mb-3">
+                            Permanently delete this classroom and all associated data. This action cannot be undone.
+                          </p>
+                          <Button variant="destructive" size="sm">
+                            Delete Classroom
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>
