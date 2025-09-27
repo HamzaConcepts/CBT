@@ -583,11 +583,12 @@ export function ClassroomSystem() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="group-hover:border-primary/50 transition-all bg-transparent hover:shadow-md hover:-translate-y-0.5"
+                        className="group-hover:border-primary/50 transition-all bg-red-100 border-red-300 hover:bg-red-200 hover:shadow-md hover:-translate-y-0.5"
                         onClick={() => handleLeaveClass(classroom.id, classroom.name)}
-                        title="Leave class"
+                        title="Leave class - EXIT BUTTON TEST"
                       >
-                        <LogOut className="w-4 h-4" />
+                        <LogOut className="w-4 h-4 text-red-600" />
+                        <span className="ml-1 text-xs text-red-600">EXIT</span>
                       </Button>
                       <Button
                         variant="outline"
