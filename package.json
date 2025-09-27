@@ -9,7 +9,6 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "build:analyze": "ANALYZE=true npm run build",
-    "postbuild": "next-sitemap --config next-sitemap.config.js",
     "clean": "rm -rf .next out",
     "check": "npm run type-check && npm run lint"
   },
