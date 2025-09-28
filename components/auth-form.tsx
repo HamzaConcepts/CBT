@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { GraduationCap, Mail, Phone, Lock, User, Sparkles } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export function AuthForm() {
   const [isLoading, setIsLoading] = useState(false)
@@ -18,6 +19,7 @@ export function AuthForm() {
   const [password, setPassword] = useState("")
   const [fullName, setFullName] = useState("")
   const [phone, setPhone] = useState("")
+  const router = useRouter()
 
   // No persistent listener; we only redirect after explicit auth success
 
@@ -29,7 +31,7 @@ export function AuthForm() {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
         if (data.session?.user) {
-          window.location.href = "/dashboard"
+          router.replace("/dashboard")
           return
         }
       } else {
@@ -55,7 +57,7 @@ export function AuthForm() {
         // Don't manually create profile - the trigger handles this
         // If email confirmation is disabled and session exists, redirect now
         if (data.session?.user) {
-          window.location.href = "/dashboard"
+          router.replace("/dashboard")
           return
         } else if (data.user && !data.session) {
           // Email confirmation required
@@ -68,7 +70,7 @@ export function AuthForm() {
       const { data: sessionData } = await supabase.auth.getUser()
       const userId = sessionData.user?.id
       if (userId) {
-        window.location.href = "/dashboard"
+        router.replace("/dashboard")
       }
     } catch (err) {
       console.error(err)

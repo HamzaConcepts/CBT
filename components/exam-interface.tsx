@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -52,6 +53,7 @@ export function ExamInterface({ examId }: ExamInterfaceProps) {
   const [showWarning, setShowWarning] = useState(false)
   const [securityViolations, setSecurityViolations] = useState<any[]>([])
   const [lockdownEnabled, setLockdownEnabled] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (examStarted && timeRemaining > 0) {
@@ -90,7 +92,7 @@ export function ExamInterface({ examId }: ExamInterfaceProps) {
     console.log("[v0] Exam submitted with answers:", answers)
     console.log("[v0] Security violations:", securityViolations)
     // Redirect to results
-    window.location.href = "/student/dashboard"
+    router.replace("/student/dashboard")
   }
 
   const handleSecurityViolation = (event: any) => {

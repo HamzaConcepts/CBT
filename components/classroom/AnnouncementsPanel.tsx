@@ -17,6 +17,7 @@ import {
 import { Bell, Plus } from "lucide-react"
 import { mutate } from 'swr'
 import { supabase } from '@/lib/supabaseClient'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 type DbAnnouncement = {
   id: string
@@ -45,18 +46,22 @@ export function AnnouncementsPanel({
     content: "",
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { user } = useCurrentUser()
 
   const handleCreateAnnouncement = async () => {
     if (!newAnnouncement.title || !newAnnouncement.content) return
+    if (!user) {
+      alert("You must be signed in to create an announcement.")
+      return
+    }
     
     setIsSubmitting(true)
     try {
       // Get current user for author
-      const { data: userData } = await supabase.auth.getUser()
       const { data: profile } = await supabase
         .from("profiles")
         .select("name")
-        .eq("user_id", userData.user?.id)
+        .eq("user_id", user.id)
         .maybeSingle()
 
       const { error } = await supabase
@@ -65,7 +70,7 @@ export function AnnouncementsPanel({
           classroom_id: classroomId,
           title: newAnnouncement.title,
           content: newAnnouncement.content,
-          author: profile?.name || userData.user?.email || "Teacher",
+          author: profile?.name || user.email || "Teacher",
         })
 
       if (error) throw error

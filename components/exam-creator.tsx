@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -64,6 +65,8 @@ export function ExamCreator() {
     lockdownBrowser: true,
   })
 
+  const router = useRouter()
+
   const addQuestion = (type: Question["type"]) => {
     const newQuestion: Question = {
       id: Date.now().toString(),
@@ -107,7 +110,7 @@ export function ExamCreator() {
 
   const previewExam = () => {
     // Navigate to exam preview
-    window.location.href = "/teacher/exam/preview"
+    router.push("/teacher/exam/preview")
   }
 
   return (

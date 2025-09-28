@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { useCurrentUser } from "@/hooks/useCurrentUser"
+import { useRouter } from "next/navigation"
 
 type Profile = {
   user_id: string
@@ -16,25 +18,53 @@ type Profile = {
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const { user, isLoading: userLoading } = useCurrentUser()
+  const router = useRouter()
 
   useEffect(() => {
-    const load = async () => {
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData.user?.id
-      if (!userId) {
-        window.location.href = "/"
-        return
-      }
-      const { data } = await supabase.from("profiles").select("user_id,email,name,role,phone").eq("user_id", userId).single()
-      setProfile(data as Profile)
+    if (userLoading) return
+
+    if (!user) {
+      setProfile(null)
       setLoading(false)
+      router.replace("/")
+      return
     }
+
+    let active = true
+
+    const load = async () => {
+      setLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("user_id,email,name,role,phone")
+          .eq("user_id", user.id)
+          .single()
+
+        if (!active) return
+
+        if (error) {
+          console.error("Failed to load profile", error)
+          setProfile(null)
+        } else {
+          setProfile(data as Profile)
+        }
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
     load()
-  }, [])
+
+    return () => {
+      active = false
+    }
+  }, [user?.id, userLoading, router])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
-    window.location.href = "/"
+    router.replace("/")
   }
 
   if (loading) return null

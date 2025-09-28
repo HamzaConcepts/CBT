@@ -1,9 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import useSWR from 'swr'
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabaseClient"
+import { useCurrentUser } from "@/hooks/useCurrentUser"
+import { useRouter } from "next/navigation"
 
 type Profile = {
   user_id: string
@@ -13,22 +16,33 @@ type Profile = {
 
 export function AccountButton() {
   const [open, setOpen] = useState(false)
-  const [profile, setProfile] = useState<Profile | null>(null)
-
-  useEffect(() => {
-    const load = async () => {
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData.user?.id
-      if (!userId) return
-      const { data } = await supabase.from("profiles").select("user_id,email,name").eq("user_id", userId).single()
-      setProfile(data as Profile)
+  const { user, isLoading: userLoading } = useCurrentUser()
+  const router = useRouter()
+  
+  // Use SWR for profile data with proper caching
+  const { data: profile } = useSWR(
+    !userLoading && user?.id ? `profile-${user.id}` : null,
+    async () => {
+      if (!user?.id) return null
+      const { data } = await supabase
+        .from("profiles")
+        .select("user_id,email,name")
+        .eq("user_id", user.id)
+        .single()
+      return data as Profile
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 300000, // 5 minutes - profile rarely changes
+      revalidateIfStale: false,
+      errorRetryCount: 0,
     }
-    load()
-  }, [])
+  )
 
   const signOut = async () => {
     await supabase.auth.signOut()
-    window.location.href = "/"
+    router.replace("/")
   }
 
   if (!profile) return null

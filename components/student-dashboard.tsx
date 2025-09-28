@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +23,7 @@ import {
 } from "lucide-react"
 import { ClassroomSystem } from "@/components/classroom-system"
 import { supabase } from "@/lib/supabaseClient"
+import { useCurrentUser } from "@/hooks/useCurrentUser"
 
 type DbExam = {
   id: string
@@ -57,69 +59,83 @@ export function StudentDashboard() {
   const [attempts, setAttempts] = useState<DbAttempt[]>([])
   const [notifications, setNotifications] = useState<DbNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const { user, isLoading: userLoading } = useCurrentUser()
+  const router = useRouter()
 
   // Resolve current authenticated user
   useEffect(() => {
+    if (userLoading) return
+
+    if (!user) {
+      setExams([])
+      setAttempts([])
+      setNotifications([])
+      setLoading(false)
+      return
+    }
+
+    let active = true
+
     const loadData = async () => {
       setLoading(true)
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData.user?.id
+      try {
+        const [examResult, attemptResult, notificationResult] = await Promise.all([
+          supabase
+            .from("exams")
+            .select("id,title,type,duration_min,question_count,status,due_at,max_attempts")
+            .order("due_at", { ascending: true }),
+          supabase
+            .from("attempts")
+            .select("id,exam_id,user_id,submitted_at,score")
+            .eq("user_id", user.id)
+            .order("submitted_at", { ascending: false }),
+          supabase
+            .from("notifications")
+            .select("id,type,message,created_at")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(10),
+        ])
 
-      // 2) Fetch exams
-      const { data: examRows, error: examErr } = await supabase
-        .from("exams")
-        .select("id,title,type,duration_min,question_count,status,due_at,max_attempts")
-        .order("due_at", { ascending: true })
+        if (!active) return
 
-      if (examErr) {
-        console.error(examErr)
-      } else {
-        setExams(examRows ?? [])
-      }
-
-      // 3) Fetch attempts for the user
-      if (userId) {
-        const { data: attemptRows, error: attemptErr } = await supabase
-          .from("attempts")
-          .select("id,exam_id,user_id,submitted_at,score")
-          .eq("user_id", userId)
-          .order("submitted_at", { ascending: false })
-
-        if (attemptErr) {
-          console.error(attemptErr)
-        } else {
-          setAttempts(attemptRows ?? [])
+        if (examResult.error) {
+          console.error(examResult.error)
         }
+        setExams(examResult.data ?? [])
 
-        // 4) Notifications
-        const { data: notifRows, error: notifErr } = await supabase
-          .from("notifications")
-          .select("id,type,message,created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(10)
+        if (attemptResult.error) {
+          console.error(attemptResult.error)
+        }
+        setAttempts(attemptResult.data ?? [])
 
-        if (notifErr) {
-          console.error(notifErr)
-        } else {
-          setNotifications(notifRows ?? [])
+        if (notificationResult.error) {
+          console.error(notificationResult.error)
+        }
+        setNotifications(notificationResult.data ?? [])
+      } catch (error) {
+        console.error("Failed to load student dashboard data", error)
+      } finally {
+        if (active) {
+          setLoading(false)
         }
       }
-
-      setLoading(false)
     }
+
     loadData()
-  }, [])
+
+    return () => {
+      active = false
+    }
+  }, [user?.id, userLoading])
 
   const handleStartExam = (examId: string) => {
-    // Navigate to exam taking interface
-    window.location.href = `/student/exam/${examId}`
+    router.push(`/student/exam/${examId}`)
   }
 
   const handleEnterExamCode = () => {
     if (examCode.trim()) {
-      // Navigate to exam with code
-      window.location.href = `/student/exam/code/${examCode}`
+      router.push(`/student/exam/code/${examCode}`)
     }
   }
 

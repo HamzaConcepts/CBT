@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import { ClassroomSystem } from "@/components/classroom-system"
 import { supabase } from "@/lib/supabaseClient"
+import { useCurrentUser } from "@/hooks/useCurrentUser"
 
 type DbExam = {
   id: string
@@ -54,63 +55,101 @@ export function TeacherDashboard() {
   const [students, setStudents] = useState<DbStudent[]>([])
   const [alerts, setAlerts] = useState<DbAlert[]>([])
   const [loading, setLoading] = useState(true)
-
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const { user, isLoading: userLoading } = useCurrentUser()
 
   useEffect(() => {
+    if (userLoading) return
+
+    if (!user) {
+      setExams([])
+      setStudents([])
+      setAlerts([])
+      setLoading(false)
+      return
+    }
+
+    let active = true
+
     const load = async () => {
       setLoading(true)
-      const { data: userData } = await supabase.auth.getUser()
-      const teacherId = userData.user?.id || null
-      setCurrentUserId(teacherId)
-      // classrooms taught by teacher
-      const { data: classroomRows } = await supabase
-        .from("classrooms")
-        .select("id")
-        .eq("teacher_id", teacherId)
-      const classroomIds = (classroomRows || []).map((c) => c.id)
+      try {
+        const [classroomResult, alertResult] = await Promise.all([
+          supabase
+            .from("classrooms")
+            .select("id")
+            .eq("teacher_id", user.id),
+          supabase
+            .from("security_events")
+            .select("id,event_type,message,created_at")
+            .order("created_at", { ascending: false })
+            .limit(5),
+        ])
 
-      // exams in those classrooms
-      if (classroomIds.length) {
-        const { data: examRows } = await supabase
-          .from("exams")
-          .select("id,title,type,duration_min,status,classroom_id")
-          .in("classroom_id", classroomIds)
-          .order("created_at", { ascending: false })
-        setExams(examRows || [])
-      } else {
-        setExams([])
+        if (!active) return
+
+        const classroomIds = (classroomResult.data ?? []).map((c) => c.id)
+
+        if (classroomResult.error) {
+          console.error(classroomResult.error)
+        }
+
+        let examsData: DbExam[] = []
+        let studentsData: DbStudent[] = []
+
+        if (classroomIds.length) {
+          const [examResult, memberResult] = await Promise.all([
+            supabase
+              .from("exams")
+              .select("id,title,type,duration_min,status,classroom_id")
+              .in("classroom_id", classroomIds)
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("classroom_memberships")
+              .select("user_id,status,profiles:profiles!inner(user_id,name,email)")
+              .in("classroom_id", classroomIds),
+          ])
+
+          if (!active) return
+
+          if (examResult.error) {
+            console.error(examResult.error)
+          }
+          examsData = examResult.data ?? []
+
+          if (memberResult.error) {
+            console.error(memberResult.error)
+          }
+
+          const uniq = new Map<string, DbStudent>()
+          ;(memberResult.data || []).forEach((m: any) => {
+            const u = m.profiles
+            if (u && !uniq.has(u.user_id)) {
+              uniq.set(u.user_id, { id: u.user_id, name: u.name, email: u.email, status: m.status })
+            }
+          })
+          studentsData = Array.from(uniq.values())
+        }
+
+        setExams(examsData)
+        setStudents(studentsData)
+
+        if (alertResult.error) {
+          console.error(alertResult.error)
+        }
+        setAlerts(alertResult.data ?? [])
+      } catch (error) {
+        console.error("Failed to load teacher dashboard data", error)
+      } finally {
+        if (active) setLoading(false)
       }
-
-      // students via memberships across these classrooms
-      if (classroomIds.length) {
-        const { data: memberRows } = await supabase
-          .from("classroom_memberships")
-          .select("user_id,status,profiles:profiles!inner(user_id,name,email)")
-          .in("classroom_id", classroomIds)
-        const uniq = new Map<string, DbStudent>()
-        ;(memberRows || []).forEach((m: any) => {
-          const u = m.profiles
-          if (!uniq.has(u.user_id))
-            uniq.set(u.user_id, { id: u.user_id, name: u.name, email: u.email, status: m.status })
-        })
-        setStudents(Array.from(uniq.values()))
-      } else {
-        setStudents([])
-      }
-
-      // alerts from security_events (latest 5)
-      const { data: alertRows } = await supabase
-        .from("security_events")
-        .select("id,event_type,message,created_at")
-        .order("created_at", { ascending: false })
-        .limit(5)
-      setAlerts(alertRows || [])
-
-      setLoading(false)
     }
+
     load()
-  }, [])
+
+    return () => {
+      active = false
+    }
+  }, [user?.id, userLoading])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">

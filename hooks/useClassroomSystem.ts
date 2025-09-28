@@ -32,7 +32,10 @@ export function useCreatedClassrooms() {
     },
     {
       revalidateOnFocus: false,
-      dedupingInterval: 30000 // 30 seconds
+      revalidateOnReconnect: false,
+      dedupingInterval: 120000, // 2 minutes
+      revalidateIfStale: false,
+      errorRetryCount: 0
     }
   )
 }
@@ -63,7 +66,10 @@ export function useJoinedClassrooms() {
     },
     {
       revalidateOnFocus: false,
-      dedupingInterval: 30000 // 30 seconds
+      revalidateOnReconnect: false, 
+      dedupingInterval: 120000, // 2 minutes
+      revalidateIfStale: false,
+      errorRetryCount: 0
     }
   )
 }

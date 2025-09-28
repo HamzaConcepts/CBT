@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -41,6 +42,7 @@ interface ClassroomDetailProps {
 
 export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
   const [activeTab, setActiveTab] = useState("overview")
+  const router = useRouter()
   
   // Authentication
   const { user, isLoading: userLoading } = useCurrentUser()
@@ -64,7 +66,7 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
   
   // Redirect if not authenticated
   if (!userLoading && !user) {
-    window.location.href = "/"
+    router.replace("/")
     return null
   }
 

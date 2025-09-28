@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +43,7 @@ export function ClassroomCard({
   copiedCode,
   isLeavingClassroom = false
 }: ClassroomCardProps) {
+  const router = useRouter()
   const handleCopyCode = () => {
     if (onCopyCode) {
       onCopyCode(classroom.code)
@@ -52,6 +54,10 @@ export function ClassroomCard({
     if (onLeave) {
       onLeave(classroom.id, classroom.name)
     }
+  }
+
+  const handleOpenClassroom = () => {
+    router.push(`/classroom/${classroom.id}`)
   }
 
   return (
@@ -129,7 +135,7 @@ export function ClassroomCard({
             <Button
               variant="outline"
               className="flex-1 group-hover:border-primary/50 transition-all bg-transparent hover:shadow-md hover:-translate-y-0.5"
-              onClick={() => (window.location.href = `/classroom/${classroom.id}`)}
+              onClick={handleOpenClassroom}
             >
               <BookOpen className="w-4 h-4 mr-2" />
               {role === "TEACHER" ? "Manage" : "Enter"}

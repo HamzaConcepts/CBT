@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { mutate } from 'swr'
 import { 
   useCreatedClassrooms, 
@@ -9,6 +10,7 @@ import {
   useJoinClassroom, 
   useLeaveClassroom 
 } from "@/hooks/useClassroomSystem"
+import { useCurrentUser } from "@/hooks/useCurrentUser"
 import { ClassroomCard } from "@/components/classroom-system/ClassroomCard"
 import { CreateClassDialog } from "@/components/classroom-system/CreateClassDialog"
 import { JoinClassDialog } from "@/components/classroom-system/JoinClassDialog"
@@ -22,7 +24,18 @@ export function ClassroomSystem() {
   const [isJoining, setIsJoining] = useState(false)
   const [leavingClassroomId, setLeavingClassroomId] = useState<string | null>(null)
 
-  // Data fetching with SWR
+  // Auth guard
+  const { user, isLoading: userLoading } = useCurrentUser()
+  const router = useRouter()
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!userLoading && !user) {
+      router.replace("/")
+    }
+  }, [user, userLoading, router])
+
+  // Data fetching with SWR - only fetch if user is authenticated
   const { data: createdClasses = [], isLoading: createdLoading, mutate: mutateCreated } = useCreatedClassrooms()
   const { data: joinedClasses = [], isLoading: joinedLoading, mutate: mutateJoined } = useJoinedClassrooms()
 
@@ -30,6 +43,20 @@ export function ClassroomSystem() {
   const { createClassroom } = useCreateClassroom()
   const { joinClassroom } = useJoinClassroom()
   const { leaveClassroom } = useLeaveClassroom()
+
+  // Don't render anything while checking auth
+  if (userLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  // Don't render if not authenticated (will redirect)
+  if (!user) {
+    return null
+  }
 
   // Filter classrooms based on search term
   const filterClassrooms = (classList: any[]) => {
