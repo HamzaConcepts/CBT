@@ -112,74 +112,33 @@ export function useRoster(classroomId: string, userRole?: string) {
   return useSWR(
     userRole === "TEACHER" ? `roster-${classroomId}` : null,
     async () => {
-      // First get the classroom memberships
-      const { data: memberships, error: membershipsError } = await supabase
-        .from("classroom_memberships")
-        .select("user_id, status, joined_at, role")
+      // Use the classroom_roster view that combines memberships with auth.users data
+      const { data, error } = await supabase
+        .from("classroom_roster")
+        .select("user_id, status, joined_at, role, email, name")
         .eq("classroom_id", classroomId)
         .eq("status", "active")
         .eq("role", "STUDENT")
       
-      if (membershipsError) throw membershipsError
-      if (!memberships || memberships.length === 0) return []
-      
-      // Then get the profiles for those users
-      const userIds = memberships.map(m => m.user_id)
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("user_id, name, email")
-        .in("user_id", userIds)
-      
-      if (profilesError) throw profilesError
-      
-      // Handle missing profiles
-      const missingProfileUserIds = userIds.filter(id => 
-        !profiles?.find(p => p.user_id === id)
-      )
-      
-      // Create fallback profiles for missing users
-      let allProfiles = profiles || []
-      if (missingProfileUserIds.length > 0) {
-        const missingProfiles = await Promise.all(
-          missingProfileUserIds.map(async (userId) => {
-            // Try to create a profile for this user
-            const { data: newProfile, error } = await supabase
-              .from("profiles")
-              .insert({
-                user_id: userId,
-                email: `user-${userId.slice(0, 8)}@unknown.com`,
-                name: `User ${userId.slice(0, 8)}`,
-                role: 'STUDENT'
-              })
-              .select()
-              .single()
-            
-            if (error) {
-              return {
-                user_id: userId,
-                name: `Student ${userId.slice(0, 8)}`,
-                email: `unknown-${userId.slice(0, 8)}@student.com`
-              }
-            }
-            return newProfile
-          })
-        )
-        
-        allProfiles.push(...missingProfiles)
+      if (error) {
+        console.error("Error fetching roster:", error)
+        throw error
       }
       
-      // Combine the data
-      const rosterData = memberships.map(membership => {
-        const profile = allProfiles.find(p => p.user_id === membership.user_id)
-        return {
-          ...membership,
-          profiles: profile || {
-            user_id: membership.user_id,
-            name: `Student ${membership.user_id.slice(0, 8)}`,
-            email: `unknown-${membership.user_id.slice(0, 8)}@student.com`
-          }
+      if (!data || data.length === 0) return []
+      
+      // Transform the data to match the expected structure
+      const rosterData = data.map(student => ({
+        user_id: student.user_id,
+        status: student.status,
+        joined_at: student.joined_at,
+        role: student.role,
+        profiles: {
+          user_id: student.user_id,
+          name: student.name,
+          email: student.email
         }
-      })
+      }))
       
       return rosterData
     }

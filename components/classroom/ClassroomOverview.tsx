@@ -127,7 +127,7 @@ export function ClassroomOverview({
       </header>
 
       {/* Quick Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/*<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Class Statistics</CardTitle>
@@ -198,7 +198,7 @@ export function ClassroomOverview({
             </div>
           </CardContent>
         </Card>
-      </div>
+      </div>*/}
     </div>
   )
 }

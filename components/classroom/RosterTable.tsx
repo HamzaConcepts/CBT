@@ -27,7 +27,7 @@ type DbRosterRow = {
   profiles: { 
     user_id: string
     name: string | null
-    email: string 
+    email: string | null
   }
 }
 
@@ -37,7 +37,11 @@ interface RosterTableProps {
 }
 
 export function RosterTable({ roster, isLoading = false }: RosterTableProps) {
-  const handleEmailStudent = (email: string) => {
+  const handleEmailStudent = (email: string | null) => {
+    if (!email) {
+      alert("No email available for this student")
+      return
+    }
     window.location.href = `mailto:${email}`
   }
 
@@ -162,7 +166,7 @@ export function RosterTable({ roster, isLoading = false }: RosterTableProps) {
                             {student.profiles.name || `Student ${student.user_id.slice(0, 8)}`}
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            {student.profiles.email}
+                            {student.profiles.email || 'No email available'}
                           </div>
                         </div>
                       </td>
@@ -211,7 +215,7 @@ export function RosterTable({ roster, isLoading = false }: RosterTableProps) {
                             <DropdownMenuItem 
                               onClick={() => handleRemoveStudent(
                                 student.user_id, 
-                                student.profiles.name || student.profiles.email
+                                student.profiles.name || student.profiles.email || `Student ${student.user_id.slice(0, 8)}`
                               )}
                               className="cursor-pointer text-red-600 focus:text-red-600"
                             >
