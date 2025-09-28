@@ -1,4 +1,4 @@
-import { ClassroomDetail } from "@/components/classroom-detail"
+import { ClassroomDetail } from "@/components/classroom-detail-new"
 import { supabase } from "@/lib/supabaseClient"
 
 async function authorize(classroomId: string) {

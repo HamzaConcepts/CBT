@@ -5,6 +5,7 @@ import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Suspense } from "react"
+import { SWRConfig } from 'swr'
 import "./globals.css"
 import { Toaster } from "@/components/ui/sonner"
 import { AccountButton } from "@/components/account-button"
@@ -24,9 +25,15 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <Suspense fallback={null}>
-          <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-            {children}
-          </ThemeProvider>
+          <SWRConfig value={{
+            revalidateOnFocus: false,
+            refreshInterval: 0,
+            dedupingInterval: 60000, // 1 minute
+          }}>
+            <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+              {children}
+            </ThemeProvider>
+          </SWRConfig>
         </Suspense>
         <Analytics />
         <Toaster />
