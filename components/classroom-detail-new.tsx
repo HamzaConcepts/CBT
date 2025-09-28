@@ -106,19 +106,19 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className={`grid w-full ${userRole === 'STUDENT' ? 'grid-cols-4' : 'grid-cols-5'} bg-card/50 backdrop-blur-sm`}>
-            <TabsTrigger
+            <TabsTrigger                //Overview tab button
               value="overview"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Overview
             </TabsTrigger>
-            <TabsTrigger
+            <TabsTrigger               //Assignments tab button
               value="assignments"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               {userRole === 'STUDENT' ? 'My Work' : 'Assignments'}
             </TabsTrigger>
-            {userRole === 'TEACHER' && (
+            {userRole === 'TEACHER' && (      //Students tab button (Teachers only)
               <TabsTrigger
                 value="students"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -126,13 +126,13 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
                 Students
               </TabsTrigger>
             )}
-            <TabsTrigger
+            <TabsTrigger               //Grades tab button
               value="grades"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               {userRole === 'STUDENT' ? 'My Grades' : 'Grades'}
             </TabsTrigger>
-            <TabsTrigger
+            <TabsTrigger                    //Settings tab button
               value="settings"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
