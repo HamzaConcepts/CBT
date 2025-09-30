@@ -7,7 +7,9 @@ alter table classrooms enable row level security;
 alter table classroom_memberships enable row level security;
 alter table assignments enable row level security;
 alter table announcements enable row level security;
-alter table questions enable row level security;
+alter table exam_questions enable row level security;
+alter table exam_question_answers enable row level security;
+alter table exam_attempt_answers enable row level security;
 alter table security_events enable row level security;
 alter table materials enable row level security;
 alter table submissions enable row level security;
@@ -94,8 +96,8 @@ create policy "Teachers can view attempts for their exams" on attempts
     )
   );
 
--- Questions policies
-create policy "Teachers can manage questions for their exams" on questions
+-- Exam question policies
+create policy "Teachers can manage exam questions" on exam_questions
   for all using (
     exam_id in (
       select e.id from exams e
@@ -104,13 +106,42 @@ create policy "Teachers can manage questions for their exams" on questions
     )
   );
 
-create policy "Students can view questions during exams" on questions
+create policy "Students can view exam questions when enrolled" on exam_questions
   for select using (
     exam_id in (
       select e.id from exams e
       join classrooms c on e.classroom_id = c.id
       join classroom_memberships cm on c.id = cm.classroom_id
       where cm.user_id = auth.uid() and cm.role = 'STUDENT'
+    )
+  );
+
+-- Exam question answer policies
+create policy "Teachers manage exam answer keys" on exam_question_answers
+  for all using (
+    question_id in (
+      select q.id from exam_questions q
+      join exams e on q.exam_id = e.id
+      join classrooms c on e.classroom_id = c.id
+      where c.teacher_id = auth.uid()
+    )
+  );
+
+-- Exam attempt answer policies
+create policy "Students can manage their exam responses" on exam_attempt_answers
+  for all using (
+    attempt_id in (
+      select a.id from attempts a where a.user_id = auth.uid()
+    )
+  );
+
+create policy "Teachers can view exam responses" on exam_attempt_answers
+  for select using (
+    attempt_id in (
+      select a.id from attempts a
+      join exams e on a.exam_id = e.id
+      join classrooms c on e.classroom_id = c.id
+      where c.teacher_id = auth.uid()
     )
   );
 

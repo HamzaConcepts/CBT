@@ -2,8 +2,11 @@
 
 import { useEffect } from "react"
 import { supabase } from "@/lib/supabaseClient"
+import { useRouter } from "next/navigation"
 
 export default function AuthCallback() {
+  const router = useRouter()
+
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
@@ -12,25 +15,25 @@ export default function AuthCallback() {
         
         if (error) {
           console.error("Auth callback error:", error)
-          window.location.href = "/?error=" + encodeURIComponent(error.message)
+          router.replace(`/?error=${encodeURIComponent(error.message)}`)
           return
         }
 
         if (data.session?.user) {
           // User is authenticated, redirect to dashboard
-          window.location.href = "/dashboard"
+          router.replace("/dashboard")
         } else {
           // No session, redirect to home
-          window.location.href = "/"
+          router.replace("/")
         }
       } catch (error) {
         console.error("Callback handling error:", error)
-        window.location.href = "/?error=callback_error"
+        router.replace("/?error=callback_error")
       }
     }
 
     handleAuthCallback()
-  }, [])
+  }, [router])
 
   return (
     <div className="flex items-center justify-center min-h-screen">

@@ -97,9 +97,22 @@ DROP POLICY IF EXISTS "Users can view their own security events" ON security_eve
 CREATE POLICY "Authenticated users can manage security events" ON security_events
   FOR ALL USING (auth.role() = 'authenticated');
 
--- Fix questions policies
-DROP POLICY IF EXISTS "Teachers can manage questions for their exams" ON questions;
-DROP POLICY IF EXISTS "Students can view questions during exams" ON questions;
+-- Fix exam question policies
+DROP POLICY IF EXISTS "Teachers can manage exam questions" ON exam_questions;
+DROP POLICY IF EXISTS "Students can view exam questions when enrolled" ON exam_questions;
 
-CREATE POLICY "Authenticated users can manage questions" ON questions
+CREATE POLICY "Authenticated users can manage exam questions" ON exam_questions
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- Fix exam question answer policies
+DROP POLICY IF EXISTS "Teachers manage exam answer keys" ON exam_question_answers;
+
+CREATE POLICY "Authenticated users can manage exam answer keys" ON exam_question_answers
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- Fix exam attempt answer policies
+DROP POLICY IF EXISTS "Students can manage their exam responses" ON exam_attempt_answers;
+DROP POLICY IF EXISTS "Teachers can view exam responses" ON exam_attempt_answers;
+
+CREATE POLICY "Authenticated users can manage exam responses" ON exam_attempt_answers
   FOR ALL USING (auth.role() = 'authenticated');

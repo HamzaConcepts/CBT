@@ -22,6 +22,7 @@ import { AnnouncementsPanel } from "@/components/classroom/AnnouncementsPanel"
 import { AssignmentsList } from "@/components/classroom/AssignmentsList"
 import { RosterTable } from "@/components/classroom/RosterTable"
 import { MaterialsSection } from "@/components/classroom/MaterialsSection"
+import { ClassroomExamsTab } from "@/components/classroom/ExamsTab"
 
 // Import our custom hooks
 import { useCurrentUser } from "@/hooks/useCurrentUser"
@@ -33,7 +34,8 @@ import {
   useAssignments,
   useMaterials,
   useRoster,
-  useSubmissions
+  useSubmissions,
+  useExams
 } from "@/hooks/useClassroomData"
 
 interface ClassroomDetailProps {
@@ -60,6 +62,7 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
     user?.id, 
     assignments
   )
+  const { data: exams = [], isLoading: examsLoading } = useExams(classroomId)
 
   // Loading states
   const isLoading = userLoading || classroomLoading || roleLoading
@@ -107,7 +110,7 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
 
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${userRole === 'STUDENT' ? 'grid-cols-4' : 'grid-cols-5'} bg-card/50 backdrop-blur-sm`}>
+          <TabsList className={`grid w-full ${userRole === 'STUDENT' ? 'grid-cols-5' : 'grid-cols-6'} bg-card/50 backdrop-blur-sm`}>
             <TabsTrigger                //Overview tab button
               value="overview"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -119,6 +122,12 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               {userRole === 'STUDENT' ? 'My Work' : 'Assignments'}
+            </TabsTrigger>
+            <TabsTrigger
+              value="exams"
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              Exams
             </TabsTrigger>
             {userRole === 'TEACHER' && (      //Students tab button (Teachers only)
               <TabsTrigger
@@ -178,6 +187,16 @@ export function ClassroomDetail({ classroomId }: ClassroomDetailProps) {
               classroomId={classroomId}
               rosterCount={rosterCount}
               isLoading={assignmentsLoading}
+            />
+          </TabsContent>
+
+          <TabsContent value="exams" className="space-y-6">
+            <ClassroomExamsTab
+              classroomId={classroomId}
+              userRole={userRole as "TEACHER" | "STUDENT" | null}
+              userId={user?.id}
+              exams={exams}
+              isLoading={examsLoading}
             />
           </TabsContent>
 

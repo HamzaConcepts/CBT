@@ -92,6 +92,25 @@ export function useAssignments(classroomId: string) {
   )
 }
 
+export function useExams(classroomId: string) {
+  return useSWR(
+    classroomId ? `exams-${classroomId}` : null,
+    async () => {
+      const { data, error } = await supabase
+        .from("exams")
+        .select(
+          "id,classroom_id,created_by,title,description,type,duration_min,question_count,total_marks,status,available_from,available_until,due_at,max_attempts,lock_on_start,created_at"
+        )
+        .eq("classroom_id", classroomId)
+        .order("available_from", { ascending: true, nullsFirst: true })
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      return data || []
+    }
+  )
+}
+
 export function useMaterials(classroomId: string) {
   return useSWR(
     `materials-${classroomId}`,

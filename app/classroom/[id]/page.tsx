@@ -1,28 +1,53 @@
+"use client"
+
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { ClassroomDetail } from "@/components/classroom-detail-new"
 import { supabase } from "@/lib/supabaseClient"
 
-async function authorize(classroomId: string) {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
-  if (!userId) {
-    if (typeof window !== "undefined") window.location.href = "/"
-    return false
-  }
-  const { data: membership } = await supabase
-    .from("classroom_memberships")
-    .select("id")
-    .eq("classroom_id", classroomId)
-    .eq("user_id", userId)
-    .maybeSingle()
-  if (!membership) {
-    if (typeof window !== "undefined") window.location.href = "/dashboard"
-    return false
-  }
-  return true
-}
-
 export default function ClassroomPage({ params }: { params: { id: string } }) {
-  // Client-side guard; Next.js route segment is client by default here
-  authorize(params.id)
+  const router = useRouter()
+
+  useEffect(() => {
+    let isActive = true
+
+    const authorize = async (classroomId: string) => {
+      try {
+        const { data: userData } = await supabase.auth.getUser()
+        if (!isActive) return
+
+        const userId = userData.user?.id
+        if (!userId) {
+          router.replace("/")
+          return
+        }
+
+        const { data: membership } = await supabase
+          .from("classroom_memberships")
+          .select("id")
+          .eq("classroom_id", classroomId)
+          .eq("user_id", userId)
+          .maybeSingle()
+
+        if (!isActive) return
+
+        if (!membership) {
+          router.replace("/dashboard")
+        }
+      } catch (error) {
+        console.error("Failed to authorize classroom access", error)
+        if (isActive) {
+          router.replace("/dashboard")
+        }
+      }
+    }
+
+    authorize(params.id)
+
+    return () => {
+      isActive = false
+    }
+  }, [params.id, router])
+
   return <ClassroomDetail classroomId={params.id} />
 }

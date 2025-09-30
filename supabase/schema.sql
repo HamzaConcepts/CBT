@@ -19,13 +19,20 @@ create index if not exists idx_profiles_role on profiles(role);
 
 create table if not exists exams (
   id uuid primary key default gen_random_uuid(),
+  classroom_id uuid,
+  created_by uuid,
   title text not null,
-  type text not null, -- QUIZ | MIDTERM | FINAL | PRACTICE
-  duration_min int not null,
+  description text,
+  type text not null default 'CLASSROOM', -- QUIZ | MIDTERM | FINAL | PRACTICE
+  duration_min int default 60,
   question_count int not null default 0,
-  status text not null default 'upcoming', -- upcoming | available | completed
-  due_at timestamptz not null,
+  total_marks int not null default 0,
+  status text not null default 'draft', -- draft | scheduled | open | closed
+  available_from timestamptz,
+  available_until timestamptz,
+  due_at timestamptz,
   max_attempts int not null default 1,
+  lock_on_start boolean not null default true,
   created_at timestamptz not null default now()
 );
 
@@ -35,7 +42,11 @@ create table if not exists attempts (
   user_id uuid not null,
   started_at timestamptz not null default now(),
   submitted_at timestamptz,
-  score int,
+  status text not null default 'in_progress', -- in_progress | submitted | graded
+  auto_score numeric(6,2),
+  manual_score numeric(6,2),
+  total_score numeric(6,2),
+  score numeric(6,2),
   unique (exam_id, user_id, started_at)
 );
 
@@ -50,6 +61,13 @@ alter table if exists attempts
 
 create index if not exists idx_attempts_user on attempts(user_id);
 create index if not exists idx_attempts_exam on attempts(exam_id);
+
+alter table if exists attempts
+  add column if not exists status text not null default 'in_progress',
+  add column if not exists auto_score numeric(6,2),
+  add column if not exists manual_score numeric(6,2),
+  add column if not exists total_score numeric(6,2),
+  add column if not exists score numeric(6,2);
 
 create table if not exists notifications (
   id bigint generated always as identity primary key,
@@ -130,20 +148,78 @@ create table if not exists announcements (
   created_at timestamptz not null default now()
 );
 
--- Link exams to classrooms
+-- Ensure exams metadata columns exist and constraints are in place
 alter table if exists exams
-  add column if not exists classroom_id uuid references classrooms(id) on delete set null;
+  add column if not exists description text,
+  add column if not exists classroom_id uuid,
+  add column if not exists created_by uuid,
+  add column if not exists total_marks int not null default 0,
+  add column if not exists available_from timestamptz,
+  add column if not exists available_until timestamptz,
+  add column if not exists lock_on_start boolean not null default true;
 
--- Questions table (optional, minimal)
-create table if not exists questions (
+alter table if exists exams
+  alter column duration_min drop not null,
+  alter column duration_min set default 60,
+  alter column due_at drop not null,
+  alter column type set default 'CLASSROOM',
+  alter column status set default 'draft';
+
+do $$ begin
+  alter table exams drop constraint if exists exams_classroom_id_fkey;
+exception when undefined_object then null;
+end $$;
+
+alter table if exists exams
+  add constraint if not exists exams_classroom_id_fkey
+  foreign key (classroom_id) references classrooms(id) on delete cascade;
+
+do $$ begin
+  alter table exams drop constraint if exists exams_created_by_fkey;
+exception when undefined_object then null;
+end $$;
+
+alter table if exists exams
+  add constraint if not exists exams_created_by_fkey
+  foreign key (created_by) references profiles(user_id) on delete set null;
+
+-- Exam questions and answers
+create table if not exists exam_questions (
   id uuid primary key default gen_random_uuid(),
   exam_id uuid not null references exams(id) on delete cascade,
   prompt text not null,
-  type text not null default 'mcq', -- mcq | short | problem
+  question_type text not null default 'mcq', -- mcq | text
   options jsonb,
-  points int default 1,
-  difficulty text default 'medium'
+  points int not null default 1,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
 );
+
+create index if not exists idx_exam_questions_exam on exam_questions(exam_id);
+
+create table if not exists exam_question_answers (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid not null references exam_questions(id) on delete cascade,
+  correct_option_index int,
+  correct_text_answer text,
+  created_at timestamptz not null default now(),
+  unique(question_id)
+);
+
+create table if not exists exam_attempt_answers (
+  id uuid primary key default gen_random_uuid(),
+  attempt_id uuid not null references attempts(id) on delete cascade,
+  question_id uuid not null references exam_questions(id) on delete cascade,
+  answer_option_index int,
+  answer_text text,
+  is_correct boolean,
+  score_awarded numeric(6,2),
+  created_at timestamptz not null default now(),
+  unique(attempt_id, question_id)
+);
+
+create index if not exists idx_exam_attempt_answers_attempt on exam_attempt_answers(attempt_id);
+create index if not exists idx_exam_attempt_answers_question on exam_attempt_answers(question_id);
 
 -- Security events for monitoring
 create table if not exists security_events (

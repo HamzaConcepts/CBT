@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { mutate } from 'swr'
 import { supabase } from '@/lib/supabaseClient'
+import { useRouter } from "next/navigation"
 
 type DbAssignment = {
   id: string
@@ -69,6 +70,7 @@ export function AssignmentsList({
   rosterCount,
   isLoading = false 
 }: AssignmentsListProps) {
+  const router = useRouter()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [newAssignment, setNewAssignment] = useState({
     title: "",
@@ -380,7 +382,7 @@ export function AssignmentsList({
                         size="sm" 
                         variant="outline" 
                         className="flex-1 bg-transparent"
-                        onClick={() => window.location.href = `/assignment/${assignment.id}`}
+                        onClick={() => router.push(`/assignment/${assignment.id}`)}
                       >
                         <Eye className="w-4 h-4 mr-2" />
                         View
@@ -389,7 +391,7 @@ export function AssignmentsList({
                         <Button 
                           size="sm" 
                           className="flex-1 gradient-primary"
-                          onClick={() => window.location.href = `/assignment/${assignment.id}/submit`}
+                          onClick={() => router.push(`/assignment/${assignment.id}/submit`)}
                         >
                           <Upload className="w-4 h-4 mr-2" />
                           Submit

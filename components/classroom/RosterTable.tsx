@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useRouter } from "next/navigation"
 import { 
   Upload, 
   Download, 
@@ -37,12 +38,14 @@ interface RosterTableProps {
 }
 
 export function RosterTable({ roster, isLoading = false }: RosterTableProps) {
+  const router = useRouter()
+
   const handleEmailStudent = (email: string | null) => {
     if (!email) {
       alert("No email available for this student")
       return
     }
-    window.location.href = `mailto:${email}`
+    window.open(`mailto:${email}`, "_self")
   }
 
   const handleRemoveStudent = (studentId: string, studentName: string) => {
@@ -205,7 +208,7 @@ export function RosterTable({ roster, isLoading = false }: RosterTableProps) {
                               Send Email
                             </DropdownMenuItem>
                             <DropdownMenuItem 
-                              onClick={() => window.location.href = `/student/${student.user_id}/progress`}
+                              onClick={() => router.push(`/student/${student.user_id}/progress`)}
                               className="cursor-pointer"
                             >
                               <GraduationCap className="w-4 h-4 mr-2" />
