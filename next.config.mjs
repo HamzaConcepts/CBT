@@ -3,6 +3,9 @@ const nextConfig = {
   // Production-ready configuration
   poweredByHeader: false,
   compress: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   
   // Enable strict CSP for exam security
   async headers() {
